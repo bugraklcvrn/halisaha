@@ -3,7 +3,7 @@ import { Users, LayoutTemplate, CalendarDays, Trophy, Trash2, Plus, Save, Play, 
 
 // --- FIREBASE BAĞLANTISI ---
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -53,11 +53,9 @@ const getPlayerStatsMap = (players, matches) => {
     allPlayersInMatch.forEach(pObj => {
       if(statsMap[pObj.playerId]) {
         statsMap[pObj.playerId].matches += 1;
-        // Sadece puanlama kapatılmış maçların puanlarını istatistiklere yansıt
         if (m.ratingsClosed) {
           const playerRatings = m.ratings[pObj.playerId];
           if (playerRatings) {
-            // Kendi kendine verdiği oyları sistemden dışla
             const validVals = Object.entries(playerRatings)
               .filter(([raterId]) => raterId !== pObj.playerId)
               .map(([_, val]) => val);
@@ -65,7 +63,6 @@ const getPlayerStatsMap = (players, matches) => {
             if (validVals.length > 0) {
               let matchAvg = validVals.reduce((a, b) => a + b, 0) / validVals.length;
               
-              // KAZANAN / KAYBEDEN TAKIM ÖDÜL VE CEZASI (+0.5 / -0.5 Puan)
               const isTeamA = m.teamA.some(p => p.playerId === pObj.playerId);
               const isTeamB = m.teamB.some(p => p.playerId === pObj.playerId);
               const wonMatch = (isTeamA && m.scoreA > m.scoreB) || (isTeamB && m.scoreB > m.scoreA);
@@ -74,7 +71,7 @@ const getPlayerStatsMap = (players, matches) => {
               if (wonMatch) matchAvg += 0.5;
               else if (lostMatch) matchAvg -= 0.5;
 
-              matchAvg = Math.max(1, Math.min(10, matchAvg)); // Min 1, Max 10 ile sınırla
+              matchAvg = Math.max(1, Math.min(10, matchAvg));
 
               statsMap[pObj.playerId].ratingSum += matchAvg;
               statsMap[pObj.playerId].ratingCount += 1;
@@ -101,7 +98,7 @@ const getPlayerStatsMap = (players, matches) => {
 
 // --- ANA BİLEŞEN ---
 export default function App() {
-  const [activeTab, setActiveTab] = useState('profilim'); // Başlangıçta Profilim sekmesi
+  const [activeTab, setActiveTab] = useState('profilim');
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   
@@ -189,7 +186,7 @@ export default function App() {
             <nav className="flex flex-wrap justify-center gap-2 flex-1 md:px-8 mb-4 md:mb-0">
               <NavButton active={activeTab === 'profilim'} onClick={() => setActiveTab('profilim')} icon={<User size={18} />} text="Profilim" />
               <NavButton active={activeTab === 'oyuncular'} onClick={() => setActiveTab('oyuncular')} icon={<Users size={18} />} text="Oyuncular" />
-              {isAdmin && <NavButton active={activeTab === 'kadro'} onClick={() => setActiveTab('kadro')} icon={<LayoutTemplate size={18} />} text="Kadro Kur" />}
+              {isAdmin && <NavButton active={activeTab === 'kadro'} onClick={() => setActiveTab('kadro')} icon={<LayoutTemplate size={18} />} text="Kadro Kur" /> }
               <NavButton active={activeTab === 'fikstur'} onClick={() => setActiveTab('fikstur')} icon={<CalendarDays size={18} />} text="Fikstür" />
               <NavButton active={activeTab === 'istatistik'} onClick={() => setActiveTab('istatistik')} icon={<Trophy size={18} />} text="İstatistikler" />
             </nav>
@@ -197,7 +194,7 @@ export default function App() {
             <div className="flex items-center gap-4">
               <div className="text-right hidden sm:block">
                 <div className="text-sm font-bold text-white">{currentUserData.firstName} {currentUserData.lastName}</div>
-                <div className="text-[10px] text-cyan-400 font-mono">ID: {currentUserData.id}</div>
+                <div className="text-[10px] text-cyan-400 font-mono">@{currentUserData.username || currentUserData.id}</div>
               </div>
               <button onClick={handleLogout} className="bg-red-900/40 text-red-400 hover:bg-red-600 hover:text-white p-2 rounded-lg transition-colors border border-red-500/30" title="Çıkış Yap"><LogOut size={18} /></button>
             </div>
@@ -228,7 +225,7 @@ function AuthScreen({ setAppUserId, players }) {
   const [loginId, setLoginId] = useState('');
   const [loginPass, setLoginPass] = useState('');
 
-  const [regData, setRegData] = useState({ firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '', passwordConfirm: '' });
+  const [regData, setRegData] = useState({ username: '', firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '', passwordConfirm: '' });
 
   const usedNumbers = players.map(p => Number(p.number));
   const availableNumbers = Array.from({length: 99}, (_, i) => i + 1);
@@ -241,18 +238,35 @@ function AuthScreen({ setAppUserId, players }) {
   const handleLogin = (e) => {
     e.preventDefault();
     if (!loginId || !loginPass) return;
-    const user = players.find(p => p.id === loginId && p.password === loginPass);
+    const loginQuery = loginId.trim().toLowerCase();
+    
+    // Hem ID hem de kullanıcı adına göre giriş yapabilme
+    const user = players.find(p => 
+      (p.id.toLowerCase() === loginQuery || (p.username && p.username.toLowerCase() === loginQuery)) && 
+      p.password === loginPass
+    );
+
     if (user) {
       localStorage.setItem('halisaha_userId', user.id);
       setAppUserId(user.id);
     } else {
-      showNotif('error', "ID veya Şifre hatalı!");
+      showNotif('error', "Bilgiler veya Şifre hatalı!");
     }
   };
 
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!regData.firstName || !regData.number || !regData.position || !regData.password) return;
+    
+    // Kullanıcı adı benzersizlik kontrolü
+    if (regData.username) {
+      const usernameNorm = regData.username.trim().toLowerCase();
+      if (players.some(p => p.username && p.username.toLowerCase() === usernameNorm)) {
+        showNotif('error', 'Bu kullanıcı adı zaten alınmış!');
+        return;
+      }
+    }
+
     if (regData.password !== regData.passwordConfirm) {
       showNotif('error', 'Şifreler eşleşmiyor! Lütfen iki şifreyi de aynı giriniz.');
       return;
@@ -264,23 +278,24 @@ function AuthScreen({ setAppUserId, players }) {
     let newId;
     do { newId = generatePlayerId(); } while (players.some(p => p.id === newId));
 
-    const { passwordConfirm, ...dbData } = regData; // passwordConfirm veritabanına gitmesin
+    const { passwordConfirm, ...dbData } = regData;
+    dbData.username = dbData.username.trim();
+
     const newUserDoc = { ...dbData, id: newId, role: isFirstUser ? 'master_admin' : 'user', status: isFirstUser ? 'approved' : 'pending', isActive: true, registeredAt: Date.now() };
 
     await setDoc(doc(dbPath('players'), newId), newUserDoc);
     
-    setRegData({ firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '', passwordConfirm: '' });
+    setRegData({ username: '', firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '', passwordConfirm: '' });
     setIsSubmitting(false);
 
     if (isFirstUser) {
       localStorage.setItem('halisaha_userId', newId);
       setAppUserId(newId);
     } else {
-      setRegisteredId(newId); // ID ekranını göstermek için tetikleyici
+      setRegisteredId(newId);
     }
   };
 
-  // KULLANICI KAYIT OLDUKTAN SONRA GÖRECEĞİ EKRAN
   if (registeredId) {
     return (
       <div className={`min-h-screen ${THEME.bg} ${THEME.text} flex flex-col items-center justify-center p-6 text-center`}>
@@ -328,8 +343,8 @@ function AuthScreen({ setAppUserId, players }) {
         {isLogin ? (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Hesap ID (6 Haneli)</label>
-              <input required type="text" maxLength="6" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-cyan-400 font-mono tracking-widest text-center text-lg" value={loginId} onChange={e => setLoginId(e.target.value)} placeholder="000000" />
+              <label className="block text-xs text-slate-400 mb-1">Hesap ID veya Kullanıcı Adı</label>
+              <input required type="text" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-cyan-400 font-mono text-center text-lg" value={loginId} onChange={e => setLoginId(e.target.value)} placeholder="ID veya @kullaniciadi" />
             </div>
             <div>
               <label className="block text-xs text-slate-400 mb-1">Şifre</label>
@@ -341,6 +356,10 @@ function AuthScreen({ setAppUserId, players }) {
           </form>
         ) : (
           <form onSubmit={handleRegister} className="space-y-4">
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Kullanıcı Adı (İsteğe Bağlı)</label>
+              <input type="text" placeholder="Giriş yaparken kullanabilirsiniz" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.username} onChange={e => setRegData({...regData, username: e.target.value})} />
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div><label className="block text-xs text-slate-400 mb-1">Ad <span className="text-red-500">*</span></label><input required type="text" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.firstName} onChange={e => setRegData({...regData, firstName: e.target.value})} /></div>
               <div><label className="block text-xs text-slate-400 mb-1">Soyad</label><input type="text" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.lastName} onChange={e => setRegData({...regData, lastName: e.target.value})} /></div>
@@ -386,11 +405,12 @@ function AuthScreen({ setAppUserId, players }) {
 }
 
 // ==========================================
-// 1. PROFİLİM SEKRESİ (GÜNCELLENDİ)
+// 1. PROFİLİM SEKRESİ
 // ==========================================
 function ProfileTab({ currentUserData, players, matches }) {
   const [pass1, setPass1] = useState('');
   const [pass2, setPass2] = useState('');
+  const [usernameInput, setUsernameInput] = useState(currentUserData.username || '');
   const [avatarInput, setAvatarInput] = useState(currentUserData.avatar || '');
   const [msg, setMsg] = useState(null);
 
@@ -400,6 +420,15 @@ function ProfileTab({ currentUserData, players, matches }) {
   const showMessage = (type, text) => {
     setMsg({ type, text });
     setTimeout(() => setMsg(null), 4000);
+  };
+
+  const saveUsername = async () => {
+    const usernameNorm = usernameInput.trim().toLowerCase();
+    if (usernameNorm && players.some(p => p.username?.toLowerCase() === usernameNorm && p.id !== currentUserData.id)) {
+      return showMessage('error', 'Bu kullanıcı adı zaten kullanılıyor!');
+    }
+    await updateDoc(doc(dbPath('players'), currentUserData.id), { username: usernameInput.trim() });
+    showMessage('success', 'Kullanıcı adı güncellendi!');
   };
 
   const changePassword = async (e) => {
@@ -416,6 +445,12 @@ function ProfileTab({ currentUserData, players, matches }) {
     showMessage('success', 'Profil fotoğrafı güncellendi!');
   };
 
+  const removeAvatar = async () => {
+    await updateDoc(doc(dbPath('players'), currentUserData.id), { avatar: '' });
+    setAvatarInput('');
+    showMessage('success', 'Profil fotoğrafı kaldırıldı!');
+  };
+
   return (
     <div className="space-y-8">
       {msg && <div className={`p-4 rounded-lg font-bold border shadow-lg transition-all text-center ${msg.type === 'error' ? 'bg-red-900/50 text-red-400 border-red-500' : 'bg-green-900/50 text-green-400 border-green-500'}`}>{msg.text}</div>}
@@ -426,7 +461,7 @@ function ProfileTab({ currentUserData, players, matches }) {
         </div>
         <div className="flex-1 text-center md:text-left">
           <h2 className="text-2xl font-bold text-white">{currentUserData.firstName} {currentUserData.lastName} <span className="text-sm font-normal text-slate-400">({currentUserData.position})</span></h2>
-          <p className="text-slate-400 text-sm mt-1">Bu sayfadan kendi istatistiklerini görebilir, profil fotoğrafı ekleyebilir ve şifreni değiştirebilirsin.</p>
+          <p className="text-slate-400 text-sm mt-1">Kariyerini yönet, profil fotoğrafı ve giriş bilgini düzenle.</p>
         </div>
         <div className="bg-slate-950 p-4 rounded-lg border border-cyan-500/30 text-center min-w-[150px]">
           <div className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold mb-1">Hesap ID</div>
@@ -447,25 +482,45 @@ function ProfileTab({ currentUserData, players, matches }) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
         
-        {/* Fotoğraf Ekleme Alanı */}
-        <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
-           <h2 className="text-xl font-bold mb-6 flex items-center gap-2 border-b border-slate-700 pb-3"><ImageIcon className="text-cyan-400" /> Profil Fotoğrafı</h2>
-           <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-6">
-              <label className="block text-xs text-slate-400 mb-2">Fotoğraf Bağlantısı (URL)</label>
-              <div className="flex gap-2">
-                  <input type="text" placeholder="https://ornek.com/foto.jpg" className="flex-1 bg-slate-800 border border-slate-600 rounded p-2 text-white outline-none focus:border-cyan-400 text-sm" value={avatarInput} onChange={e => setAvatarInput(e.target.value)} />
-                  <button type="button" onClick={saveAvatar} className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4 py-2 rounded text-sm transition-colors">Kaydet</button>
-              </div>
-              <p className="text-[10px] text-slate-500 mt-2">İnternetteki bir fotoğrafın bağlantısını (.jpg, .png) kopyalayıp buraya yapıştırın. Bu fotoğraf 'Maçın Adamı' seçildiğinizde ve kadrolarda gözükecektir.</p>
-           </div>
+        {/* Ayarlar Sol Sütun */}
+        <div className="space-y-6">
+            <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
+               <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><User className="text-cyan-400" /> Kullanıcı Adı</h2>
+               <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                  <label className="block text-xs text-slate-400 mb-2">Sisteme Giriş Adı</label>
+                  <div className="flex gap-2">
+                      <div className="flex-1 flex items-center bg-slate-800 border border-slate-600 rounded px-2">
+                          <span className="text-slate-500">@</span>
+                          <input type="text" placeholder="kullaniciadi" className="w-full bg-transparent p-2 text-white outline-none focus:border-cyan-400 text-sm" value={usernameInput} onChange={e => setUsernameInput(e.target.value.replace(/\s+/g, ''))} />
+                      </div>
+                      <button type="button" onClick={saveUsername} className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4 py-2 rounded text-sm transition-colors">Kaydet</button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-2">Bu kullanıcı adını kullanarak 6 haneli ID numarasına ihtiyaç duymadan sisteme giriş yapabilirsiniz.</p>
+               </div>
+            </div>
+
+            <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
+               <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><ImageIcon className="text-cyan-400" /> Profil Fotoğrafı</h2>
+               <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                  <label className="block text-xs text-slate-400 mb-2">Fotoğraf Bağlantısı (URL)</label>
+                  <div className="flex gap-2">
+                      <input type="text" placeholder="https://ornek.com/foto.jpg" className="flex-1 bg-slate-800 border border-slate-600 rounded p-2 text-white outline-none focus:border-cyan-400 text-sm" value={avatarInput} onChange={e => setAvatarInput(e.target.value)} />
+                      <button type="button" onClick={saveAvatar} className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4 py-2 rounded text-sm transition-colors">Kaydet</button>
+                      {currentUserData.avatar && (
+                         <button type="button" onClick={removeAvatar} className="bg-red-600 hover:bg-red-500 text-white font-bold px-4 py-2 rounded text-sm transition-colors">Kaldır</button>
+                      )}
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-2">İnternetteki bir fotoğrafın bağlantısını (.jpg, .png) yapıştırın.</p>
+               </div>
+            </div>
         </div>
 
-        {/* Şifre Alanı */}
+        {/* Ayarlar Sağ Sütun */}
         <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
-          <h2 className="text-xl font-bold mb-6 flex items-center gap-2 border-b border-slate-700 pb-3"><KeyRound className="text-orange-400" /> Şifre İşlemleri</h2>
+          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><KeyRound className="text-orange-400" /> Şifre İşlemleri</h2>
           
-          <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-6 text-sm">
-            <span className="text-slate-400 block mb-1">Mevcut Şifreniz:</span>
+          <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-6 text-sm flex justify-between items-center">
+            <span className="text-slate-400">Mevcut Şifreniz:</span>
             <span className="font-mono text-cyan-400 text-lg font-bold">{currentUserData.password}</span>
           </div>
 
@@ -478,7 +533,7 @@ function ProfileTab({ currentUserData, players, matches }) {
               <label className="block text-xs text-slate-400 mb-1">Yeni Şifre (Tekrar)</label>
               <input required type="password" placeholder="Şifrenizi tekrar girin" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={pass2} onChange={e => setPass2(e.target.value)} />
             </div>
-            <button type="submit" className="w-full mt-2 py-2 rounded-lg font-bold bg-orange-600 hover:bg-orange-500 text-white shadow-lg transition-all flex justify-center items-center gap-2">
+            <button type="submit" className="w-full mt-2 py-3 rounded-lg font-bold bg-orange-600 hover:bg-orange-500 text-white shadow-lg transition-all flex justify-center items-center gap-2">
                Şifreyi Değiştir
             </button>
           </form>
@@ -673,11 +728,13 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
                         <td className="p-3 font-mono text-cyan-400 text-center font-bold text-lg">{p.number || '-'}</td>
                         <td className="p-3">
                            <div className="font-semibold text-white flex items-center gap-2">
-                             {/* Mini Avatar in table */}
                              {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600" />}
                              {p.firstName} {p.lastName} {p.role === 'master_admin' && <ShieldCheck size={14} className="text-yellow-400" title="Asıl Admin" />} {p.role === 'admin' && <Shield size={14} className="text-cyan-400" title="Admin" />}
                            </div>
-                           {isAdmin ? <div className="text-[10px] text-slate-500 font-mono tracking-widest">ID: <span className="text-cyan-500 font-bold">{p.id}</span></div> : <div className="text-[10px] text-slate-500">{p.group || '...'}</div>}
+                           <div className="text-[10px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
+                              {isAdmin && <span>ID: <span className="text-cyan-500 font-bold">{p.id}</span></span>}
+                              {p.username && <span className="text-blue-300">@{p.username}</span>}
+                           </div>
                         </td>
                         <td className="p-3"><span className={`px-2 py-1 rounded text-xs ${p.position === 'Kaleci' ? 'bg-yellow-600/20 text-yellow-400' : p.position === 'Defans' ? 'bg-blue-600/20 text-blue-400' : p.position === 'Orta Saha' ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>{p.position}</span></td>
                         <td className="p-3 text-xs text-slate-400">{p.phone || '-'}</td>
@@ -720,12 +777,35 @@ function SquadTab({ players, matches }) {
 
   const statsMap = getPlayerStatsMap(players, matches);
 
+  // Mobil için Hızlı Tıklama ile Kadroya Alma
+  const moveToPitch = (playerId, team) => {
+    const x = team === 'A' ? 25 + Math.random() * 10 : 65 + Math.random() * 10;
+    const y = 20 + Math.random() * 60;
+    setPitchPlayers(prev => {
+       const filtered = prev.filter(p => p.playerId !== playerId);
+       return [...filtered, { playerId, x, y, team }];
+    });
+    setSubstitutes(prev => prev.filter(id => id !== playerId));
+  };
+
+  const moveToSubs = (playerId) => {
+    if (!substitutes.includes(playerId)) setSubstitutes([...substitutes, playerId]);
+    setPitchPlayers(prev => prev.filter(p => p.playerId !== playerId));
+  };
+
+  const removeFromSquad = (playerId) => {
+    setPitchPlayers(prev => prev.filter(p => p.playerId !== playerId));
+    setSubstitutes(prev => prev.filter(id => id !== playerId));
+  };
+
   const handleDragStart = (e, playerId, source) => { e.dataTransfer.setData('playerId', playerId); e.dataTransfer.setData('source', source); };
   const handleDropOnPitch = (e, team) => { e.preventDefault(); const playerId = e.dataTransfer.getData('playerId'); if (!playerId) return; const rect = e.currentTarget.getBoundingClientRect(); const x = ((e.clientX - rect.left) / rect.width) * 100; const y = ((e.clientY - rect.top) / rect.height) * 100; setPitchPlayers(prev => { const filtered = prev.filter(p => p.playerId !== playerId); return [...filtered, { playerId, x, y, team }]; }); setSubstitutes(prev => prev.filter(id => id !== playerId)); };
   const handleDropOnSubs = (e) => { e.preventDefault(); const playerId = e.dataTransfer.getData('playerId'); if (!playerId) return; if (!substitutes.includes(playerId)) setSubstitutes([...substitutes, playerId]); setPitchPlayers(prev => prev.filter(p => p.playerId !== playerId)); };
-  const handleDropToRemove = (e) => { e.preventDefault(); const playerId = e.dataTransfer.getData('playerId'); if (!playerId) return; setPitchPlayers(prev => prev.filter(p => p.playerId !== playerId)); setSubstitutes(prev => prev.filter(id => id !== playerId)); };
+  const handleDropToRemove = (e) => { e.preventDefault(); const playerId = e.dataTransfer.getData('playerId'); if (!playerId) return; removeFromSquad(playerId); };
   const updatePitchPlayerPosition = (playerId, x, y) => { setPitchPlayers(prev => prev.map(p => p.playerId === playerId ? { ...p, x, y, team: x <= 50 ? 'A' : 'B' } : p)); };
-  const handleDoubleClickPlayer = (playerId) => { const countA = pitchPlayers.filter(p => p.team === 'A').length; const countB = pitchPlayers.filter(p => p.team === 'B').length; const team = countA <= countB ? 'A' : 'B'; const x = team === 'A' ? 25 + Math.random() * 10 : 65 + Math.random() * 10; const y = 20 + Math.random() * 60; setPitchPlayers(prev => [...prev, { playerId, x, y, team }]); setSubstitutes(prev => prev.filter(id => id !== playerId)); };
+  
+  // Çift Tıklama Mantığını Koru
+  const handleDoubleClickPlayer = (playerId) => { const countA = pitchPlayers.filter(p => p.team === 'A').length; const countB = pitchPlayers.filter(p => p.team === 'B').length; moveToPitch(playerId, countA <= countB ? 'A' : 'B'); };
 
   const saveMatch = async () => {
     const errors = [];
@@ -757,47 +837,57 @@ function SquadTab({ players, matches }) {
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="space-y-4 flex flex-col">
-          <div className={`${THEME.panel} p-4 rounded-xl border ${THEME.border} h-[340px] overflow-y-auto`}>
+          <div className={`${THEME.panel} p-4 rounded-xl border ${THEME.border} h-[360px] overflow-y-auto`}>
             <h3 className="font-bold text-sm mb-3 border-b border-slate-700 pb-2">Kullanılabilir ({availablePlayers.length})</h3>
-            <p className="text-[10px] text-slate-500 mb-2 italic">Çift tıklayarak sahaya atabilirsin.</p>
+            <p className="text-[10px] text-slate-500 mb-2 italic">Bilgisayarda sürükle, mobilde butonları kullan.</p>
             <div className="space-y-2">
               {availablePlayers.map(p => (
-                <div key={p.id} draggable onDragStart={(e) => handleDragStart(e, p.id, 'pool')} onDoubleClick={() => handleDoubleClickPlayer(p.id)} className="bg-slate-900 p-2 rounded border border-slate-700 cursor-grab active:cursor-grabbing hover:border-cyan-400 flex justify-between items-center text-sm transition-colors">
-                  <div className="flex flex-col">
-                    <span>{p.firstName} {p.lastName}</span>
-                    <span className="text-[10px] text-yellow-400 flex items-center gap-1 mt-0.5"><Star size={10} fill="currentColor"/> {statsMap[p.id]?.avgRating > 0 ? statsMap[p.id].avgRating : 'Puan Yok'}</span>
+                <div key={p.id} draggable onDragStart={(e) => handleDragStart(e, p.id, 'pool')} onDoubleClick={() => handleDoubleClickPlayer(p.id)} className="bg-slate-900 p-2 rounded border border-slate-700 cursor-grab active:cursor-grabbing hover:border-cyan-400 flex flex-col sm:flex-row justify-between sm:items-center text-sm transition-colors gap-2 sm:gap-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 font-mono flex items-center gap-1 w-6">{p.avatar ? <img src={p.avatar} className="w-5 h-5 rounded-full object-cover"/> : `#${p.number}`}</span>
+                    <div className="flex flex-col">
+                      <span>{p.firstName} {p.lastName}</span>
+                      <span className="text-[10px] text-yellow-400 flex items-center gap-1 mt-0.5"><Star size={10} fill="currentColor"/> {statsMap[p.id]?.avgRating > 0 ? statsMap[p.id].avgRating : 'Puan Yok'}</span>
+                    </div>
                   </div>
-                  <span className="text-xs text-slate-500 font-mono flex items-center gap-1">
-                     {p.avatar && <img src={p.avatar} className="w-4 h-4 rounded-full object-cover"/>}
-                     #{p.number}
-                  </span>
+                  {/* Mobil Butonlar */}
+                  <div className="flex gap-1 justify-end">
+                    <button type="button" onClick={() => moveToPitch(p.id, 'A')} className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] px-2 py-1 rounded">A</button>
+                    <button type="button" onClick={() => moveToPitch(p.id, 'B')} className="bg-pink-600 hover:bg-pink-500 text-white text-[10px] px-2 py-1 rounded">B</button>
+                    <button type="button" onClick={() => moveToSubs(p.id)} className="bg-yellow-600 hover:bg-yellow-500 text-white text-[10px] px-2 py-1 rounded">Yedek</button>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
           <div id="subs-zone" className={`${THEME.panel} p-4 rounded-xl border-2 border-dashed ${THEME.border} h-40 overflow-y-auto bg-slate-800/50`} onDragOver={e => e.preventDefault()} onDrop={handleDropOnSubs}>
-            <h3 className="font-bold text-sm mb-3 text-slate-400 text-center">Yedekler (Sürükle)</h3>
+            <h3 className="font-bold text-sm mb-3 text-slate-400 text-center">Yedekler</h3>
             <div className="space-y-2">
               {substitutes.map(id => { 
                 const p = players.find(player => player.id === id); 
                 if(!p) return null; 
                 return (
-                  <div key={p.id} draggable onDragStart={(e) => handleDragStart(e, p.id, 'subs')} className="bg-slate-700 p-2 rounded cursor-grab flex justify-between items-center text-sm border border-yellow-600/30">
-                    <div className="flex flex-col">
-                      <span>{p.firstName} {p.lastName}</span>
-                      <span className="text-[10px] text-yellow-300 flex items-center gap-1 mt-0.5"><Star size={10} fill="currentColor"/> {statsMap[p.id]?.avgRating > 0 ? statsMap[p.id].avgRating : 'Puan Yok'}</span>
+                  <div key={p.id} draggable onDragStart={(e) => handleDragStart(e, p.id, 'subs')} className="bg-slate-700 p-2 rounded cursor-grab flex flex-col sm:flex-row justify-between sm:items-center text-sm border border-yellow-600/30 gap-2 sm:gap-0">
+                    <div className="flex items-center gap-2">
+                       {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover"/>}
+                       <div className="flex flex-col">
+                         <span>{p.firstName} {p.lastName}</span>
+                         <span className="text-[10px] text-yellow-300 flex items-center gap-1 mt-0.5"><Star size={10} fill="currentColor"/> {statsMap[p.id]?.avgRating > 0 ? statsMap[p.id].avgRating : 'Puan Yok'}</span>
+                       </div>
                     </div>
-                    <span className="text-xs text-yellow-400 flex items-center gap-1">
-                      {p.avatar && <img src={p.avatar} className="w-4 h-4 rounded-full object-cover"/>}
-                      Yedek
-                    </span>
+                    {/* Mobil Butonlar */}
+                    <div className="flex gap-1 justify-end">
+                      <button type="button" onClick={() => moveToPitch(p.id, 'A')} className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] px-2 py-1 rounded">A</button>
+                      <button type="button" onClick={() => moveToPitch(p.id, 'B')} className="bg-pink-600 hover:bg-pink-500 text-white text-[10px] px-2 py-1 rounded">B</button>
+                      <button type="button" onClick={() => removeFromSquad(p.id)} className="bg-red-600 hover:bg-red-500 text-white text-[10px] px-2 py-1 rounded">Çıkar</button>
+                    </div>
                   </div>
                 ); 
               })}
             </div>
           </div>
-          <div id="trash-zone" className={`${THEME.panel} p-4 rounded-xl border-2 border-dashed border-red-500/50 bg-red-900/10 flex flex-col items-center justify-center text-red-400 h-24 transition-colors hover:bg-red-900/30`} onDragOver={e => e.preventDefault()} onDrop={handleDropToRemove}>
-            <Trash2 size={24} className="mb-1 opacity-80" /><span className="text-sm font-bold">Kadrodan Çıkar</span>
+          <div id="trash-zone" className={`${THEME.panel} p-4 rounded-xl border-2 border-dashed border-red-500/50 bg-red-900/10 flex flex-col items-center justify-center text-red-400 h-24 transition-colors hover:bg-red-900/30 hidden md:flex`} onDragOver={e => e.preventDefault()} onDrop={handleDropToRemove}>
+            <Trash2 size={24} className="mb-1 opacity-80" /><span className="text-sm font-bold">Kadrodan Çıkar (Sürükle)</span>
           </div>
         </div>
         <div className="lg:col-span-3">
@@ -820,7 +910,7 @@ function SquadTab({ players, matches }) {
 
 const PitchPlayer = ({ pp, players, onDragStart, teamColor, onUpdatePosition, onRemove, onMoveToSubs }) => {
   const p = players.find(player => player.id === pp.playerId);
-  const handleTouchMove = (e) => { const touch = e.touches[0]; const pitch = e.currentTarget.closest('.pitch-container'); if (!pitch) return; const rect = pitch.getBoundingClientRect(); let x = Math.max(0, Math.min(100, ((touch.clientX - rect.left) / rect.width) * 100)); let y = Math.max(0, Math.min(100, ((touch.clientY - rect.top) / rect.height) * 100)); onUpdatePosition(pp.playerId, x, y); };
+  const handleTouchMove = (e) => { e.stopPropagation(); const touch = e.touches[0]; const pitch = e.currentTarget.closest('.pitch-container'); if (!pitch) return; const rect = pitch.getBoundingClientRect(); let x = Math.max(0, Math.min(100, ((touch.clientX - rect.left) / rect.width) * 100)); let y = Math.max(0, Math.min(100, ((touch.clientY - rect.top) / rect.height) * 100)); onUpdatePosition(pp.playerId, x, y); };
   const handleTouchEnd = (e) => { const touch = e.changedTouches[0]; const target = document.elementFromPoint(touch.clientX, touch.clientY); if (target?.closest('#trash-zone')) onRemove(pp.playerId); else if (target?.closest('#subs-zone')) onMoveToSubs(pp.playerId); };
   if(!p) return null;
   return (
@@ -863,13 +953,11 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
         const pRatings = match.ratings[p.playerId];
         if (!pRatings) return;
         
-        // Kendi verdiğini sayma
         const validVals = Object.entries(pRatings).filter(([rId]) => rId !== p.playerId).map(([_, val]) => val);
         if (validVals.length === 0) return;
 
         let avg = validVals.reduce((a, b) => a + b, 0) / validVals.length;
 
-        // Ödül - Ceza Sistemi
         const isTeamA = match.teamA.some(x => x.playerId === p.playerId);
         const isTeamB = match.teamB.some(x => x.playerId === p.playerId);
         const wonMatch = (isTeamA && match.scoreA > match.scoreB) || (isTeamB && match.scoreB > match.scoreA);
@@ -891,7 +979,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     return null;
   };
 
-  // --- YETKİLİ İŞLEMLERİ (Admin) ---
+  // --- YETKİLİ İŞLEMLERİ ---
   const updateMatchStatus = async (matchId, status) => {
     if (!isAdmin) return;
     await updateDoc(doc(dbPath('matches'), matchId), { status });
@@ -923,7 +1011,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     setEditingMatch(null);
   };
 
-  // --- GOL VE ASİST DÜZENLEME ---
+  // --- GOL VE ASİST ---
   const handleAddGoal = async (teamScored, scorerId, assistId) => {
     if (!isAdmin) return;
     const newEvents = [...selectedMatch.events];
@@ -974,29 +1062,41 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     await updateDoc(doc(dbPath('matches'), selectedMatch.id), { ratings: newRatings });
   };
 
+  const handleForceRatingChange = async (targetPlayerId, raterId, val) => {
+    if (!isMasterAdmin) return;
+    const numVal = Number(val);
+    const newRatings = { ...selectedMatch.ratings };
+    if (!newRatings[targetPlayerId]) newRatings[targetPlayerId] = {};
+    
+    if (val === '') {
+        delete newRatings[targetPlayerId][raterId];
+    } else if (numVal >= 1 && numVal <= 10) {
+        newRatings[targetPlayerId][raterId] = numVal;
+    } else {
+        return;
+    }
+    await updateDoc(doc(dbPath('matches'), selectedMatch.id), { ratings: newRatings });
+  };
+
   const myTeam = selectedMatch?.teamA.some(p => p.playerId === currentUserData.id) ? 'A' :
                  selectedMatch?.teamB.some(p => p.playerId === currentUserData.id) ? 'B' : null;
 
   const canRatePlayer = (playerId) => {
     if (selectedMatch?.ratingsClosed) return false;
-    if (playerId === currentUserData.id) return false; // Kendisi hariç
-    if (!myTeam) return false; // Maçta oynamıyorsa puan veremez
-    return true; // Karşı takım dahil herkese puan verebilir
+    if (playerId === currentUserData.id) return false;
+    if (!myTeam) return false;
+    return true;
   };
 
   const getAverageRating = (playerId) => {
     const pRatings = selectedMatch?.ratings[playerId];
     if (!pRatings) return null;
     
-    // Kendi kendine verilen puanları hesaplamadan ÇIKAR
-    const validVals = Object.entries(pRatings)
-      .filter(([raterId]) => raterId !== playerId)
-      .map(([_, val]) => val);
+    const validVals = Object.entries(pRatings).filter(([rId]) => rId !== playerId).map(([_, val]) => val);
       
     if (validVals.length === 0) return null;
     let avg = validVals.reduce((a, b) => a + b, 0) / validVals.length;
 
-    // KAZANAN / KAYBEDEN TAKIM (+0.5 / -0.5 Puan) O ANKİ MAÇ İÇİN
     if (selectedMatch?.status === 'completed') {
       const isTeamA = selectedMatch.teamA.some(p => p.playerId === playerId);
       const isTeamB = selectedMatch.teamB.some(p => p.playerId === playerId);
@@ -1008,7 +1108,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
       if (wonMatch) avg += 0.5;
       else if (lostMatch) avg -= 0.5;
 
-      avg = Math.max(1, Math.min(10, avg)); // Sınırlandırma
+      avg = Math.max(1, Math.min(10, avg));
     }
 
     return avg.toFixed(1);
@@ -1250,7 +1350,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                           const myRating = selectedMatch.ratings[p.playerId]?.[currentUserData.id] || '';
                           const canRate = canRatePlayer(p.playerId);
                           
-                          // Adminler kendi puanlarını çıkarılmış halde görebilsin
                           const allValidRatings = Object.entries(selectedMatch.ratings[p.playerId] || {}).filter(([rId]) => rId !== p.playerId);
                           const playerInfo = players.find(x => x.id === p.playerId);
 
@@ -1262,7 +1361,10 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                     {getPlayerName(p.playerId)}
                                 </span>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-xs font-mono font-bold text-yellow-400 w-8 text-right">{selectedMatch.ratingsClosed ? (avg ? avg : '-') : '?'}</span>
+                                  {/* Asıl admin ortalamayı her zaman görebilir, diğerleri sadece kapandığında */}
+                                  <span className="text-xs font-mono font-bold text-yellow-400 w-8 text-right">
+                                     {(selectedMatch.ratingsClosed || isMasterAdmin) ? (avg ? avg : '-') : '?'}
+                                  </span>
                                   {canRate && (
                                     <input type="number" min="1" max="10" step="1" placeholder="Puan"
                                       className="w-14 bg-slate-900 border border-slate-600 rounded p-1 text-center text-white text-xs outline-none focus:border-cyan-400"
@@ -1270,10 +1372,17 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                   )}
                                 </div>
                               </div>
-                              {/* ASIL ADMIN İÇİN DETAYLI PUAN GÖSTERİMİ */}
+                              {/* ASIL ADMIN İÇİN DETAYLI PUAN GÖSTERİMİ VE DÜZENLEME */}
                               {isMasterAdmin && allValidRatings.length > 0 && (
-                                <div className="text-[10px] text-slate-500 mt-2 border-t border-slate-700/50 pt-1 italic">
-                                  <span className="font-bold text-slate-400">Puanlar:</span> {allValidRatings.map(([raterId, score]) => `${getPlayerName(raterId)} (${score})`).join(', ')}
+                                <div className="text-[10px] text-slate-500 mt-2 border-t border-slate-700/50 pt-2 space-y-1">
+                                  <div className="font-bold text-slate-400 mb-1 flex justify-between"><span>Verilen Puanlar:</span> <span className="text-[8px] text-cyan-500">Değiştirebilirsin</span></div>
+                                  {allValidRatings.map(([raterId, score]) => (
+                                    <div key={raterId} className="flex justify-between items-center bg-slate-950 p-1 rounded border border-slate-800">
+                                       <span className="truncate flex-1 pl-1">{getPlayerName(raterId)}</span>
+                                       <input type="number" min="1" max="10" className="w-10 bg-slate-800 text-yellow-400 font-bold border border-slate-600 rounded text-center outline-none focus:border-cyan-400" 
+                                              value={score} onChange={(e) => handleForceRatingChange(p.playerId, raterId, e.target.value)} />
+                                    </div>
+                                  ))}
                                 </div>
                               )}
                             </div>
@@ -1300,7 +1409,10 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                     {getPlayerName(p.playerId)}
                                 </span>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-xs font-mono font-bold text-yellow-400 w-8 text-right">{selectedMatch.ratingsClosed ? (avg ? avg : '-') : '?'}</span>
+                                  {/* Asıl admin ortalamayı her zaman görebilir, diğerleri sadece kapandığında */}
+                                  <span className="text-xs font-mono font-bold text-yellow-400 w-8 text-right">
+                                     {(selectedMatch.ratingsClosed || isMasterAdmin) ? (avg ? avg : '-') : '?'}
+                                  </span>
                                   {canRate && (
                                     <input type="number" min="1" max="10" step="1" placeholder="Puan"
                                       className="w-14 bg-slate-900 border border-slate-600 rounded p-1 text-center text-white text-xs outline-none focus:border-cyan-400"
@@ -1308,10 +1420,17 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                   )}
                                 </div>
                               </div>
-                              {/* ASIL ADMIN İÇİN DETAYLI PUAN GÖSTERİMİ */}
+                              {/* ASIL ADMIN İÇİN DETAYLI PUAN GÖSTERİMİ VE DÜZENLEME */}
                               {isMasterAdmin && allValidRatings.length > 0 && (
-                                <div className="text-[10px] text-slate-500 mt-2 border-t border-slate-700/50 pt-1 italic">
-                                  <span className="font-bold text-slate-400">Puanlar:</span> {allValidRatings.map(([raterId, score]) => `${getPlayerName(raterId)} (${score})`).join(', ')}
+                                <div className="text-[10px] text-slate-500 mt-2 border-t border-slate-700/50 pt-2 space-y-1">
+                                  <div className="font-bold text-slate-400 mb-1 flex justify-between"><span>Verilen Puanlar:</span> <span className="text-[8px] text-cyan-500">Değiştirebilirsin</span></div>
+                                  {allValidRatings.map(([raterId, score]) => (
+                                    <div key={raterId} className="flex justify-between items-center bg-slate-950 p-1 rounded border border-slate-800">
+                                       <span className="truncate flex-1 pl-1">{getPlayerName(raterId)}</span>
+                                       <input type="number" min="1" max="10" className="w-10 bg-slate-800 text-yellow-400 font-bold border border-slate-600 rounded text-center outline-none focus:border-cyan-400" 
+                                              value={score} onChange={(e) => handleForceRatingChange(p.playerId, raterId, e.target.value)} />
+                                    </div>
+                                  ))}
                                 </div>
                               )}
                             </div>
