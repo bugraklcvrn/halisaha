@@ -101,7 +101,7 @@ export default function App() {
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'oyuncular': return <PlayersTab players={players} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} />;
+      case 'oyuncular': return <PlayersTab players={players} matches={matches} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} />;
       case 'kadro': return isAdmin ? <SquadTab players={players} matches={matches} /> : null;
       case 'fikstur': return <FixturesTab matches={matches} players={players} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} />;
       case 'istatistik': return <StatsTab players={players} matches={matches} />;
@@ -290,14 +290,20 @@ function AuthScreen({ setAppUserId, players }) {
 // ==========================================
 // 1. OYUNCU YÖNETİMİ SEKRESİ
 // ==========================================
-function PlayersTab({ players, currentUserData, isAdmin, isMasterAdmin }) {
+function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin }) {
   // ... Bu kısım (oyuncu yönetimi) önceki kod ile tamamen aynı
   const [formData, setFormData] = useState({ firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '' });
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [editingPlayer, setEditingPlayer] = useState(null);
+  const [showNextMatchRoster, setShowNextMatchRoster] = useState(false);
 
   const pendingPlayers = players.filter(p => p.status === 'pending');
   const approvedPlayers = players.filter(p => p.status === 'approved');
+
+  const nextMatch = matches
+    .slice()
+    .sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`))
+    .find(m => m.status === 'pending' || m.status === 'active');
 
   const usedNumbers = players.map(p => Number(p.number));
   const availableNumbers = Array.from({length: 99}, (_, i) => i + 1);
@@ -338,6 +344,49 @@ function PlayersTab({ players, currentUserData, isAdmin, isMasterAdmin }) {
             <h2 className="font-bold text-lg text-white">{isMasterAdmin ? 'Asıl Admin Modu Aktif' : 'Admin Modu Aktif'}</h2>
             <p className="text-xs text-slate-400">Sistemdeki tüm yetkilere sahipsiniz ve tüm hesap ID'lerini görebilirsiniz.</p>
           </div>
+        </div>
+      )}
+
+      {nextMatch && (
+        <div className="bg-gradient-to-r from-blue-900/50 to-slate-900 border border-cyan-500/50 p-5 rounded-xl shadow-[0_0_15px_rgba(34,211,238,0.15)] cursor-pointer hover:shadow-[0_0_20px_rgba(34,211,238,0.3)] transition-all" onClick={() => setShowNextMatchRoster(!showNextMatchRoster)}>
+          <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="text-center md:text-left">
+              <div className="text-xs text-cyan-400 font-bold uppercase tracking-widest mb-1 animate-pulse">Gelecek Maç</div>
+              <div className="text-xl font-bold text-white flex items-center justify-center md:justify-start gap-2">
+                <CalendarDays size={20} className="text-slate-400"/> {nextMatch.date} - {nextMatch.time}
+              </div>
+              <div className="text-sm text-slate-400 mt-1 flex items-center justify-center md:justify-start gap-1">📍 {nextMatch.stadium || 'Baykar Park'}</div>
+            </div>
+            <div className="flex items-center gap-4">
+               <div className="font-black text-xl md:text-2xl text-blue-400 text-right">{nextMatch.teamAName}</div>
+               <div className="text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded-full">VS</div>
+               <div className="font-black text-xl md:text-2xl text-pink-400 text-left">{nextMatch.teamBName}</div>
+            </div>
+          </div>
+          
+          {showNextMatchRoster && (
+            <div className="mt-6 pt-4 border-t border-cyan-500/30 grid grid-cols-1 md:grid-cols-2 gap-6" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-blue-900/20 p-4 rounded-lg border border-blue-500/20">
+                <div className="text-blue-400 font-bold border-b border-blue-500/30 pb-2 mb-3 flex items-center justify-between"><span>{nextMatch.teamAName} Kadrosu</span><span className="text-xs bg-blue-600/30 px-2 py-1 rounded">{nextMatch.teamA.length} Kişi</span></div>
+                <ul className="text-sm space-y-2 text-slate-300">
+                  {nextMatch.teamA.map(p => {
+                    const player = players.find(x => x.id === p.playerId);
+                    return <li key={p.playerId} className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-blue-900/50 flex items-center justify-center text-xs font-bold text-blue-300">{player?.number || '-'}</div> {player ? `${player.firstName} ${player.lastName}` : 'Bilinmeyen'}</li>;
+                  })}
+                </ul>
+              </div>
+              <div className="bg-pink-900/20 p-4 rounded-lg border border-pink-500/20">
+                <div className="text-pink-400 font-bold border-b border-pink-500/30 pb-2 mb-3 flex items-center justify-between"><span>{nextMatch.teamBName} Kadrosu</span><span className="text-xs bg-pink-600/30 px-2 py-1 rounded">{nextMatch.teamB.length} Kişi</span></div>
+                <ul className="text-sm space-y-2 text-slate-300">
+                  {nextMatch.teamB.map(p => {
+                    const player = players.find(x => x.id === p.playerId);
+                    return <li key={p.playerId} className="flex items-center gap-2"><div className="w-6 h-6 rounded-full bg-pink-900/50 flex items-center justify-center text-xs font-bold text-pink-300">{player?.number || '-'}</div> {player ? `${player.firstName} ${player.lastName}` : 'Bilinmeyen'}</li>;
+                  })}
+                </ul>
+              </div>
+            </div>
+          )}
+          {!showNextMatchRoster && <div className="text-center mt-3 text-[10px] text-slate-500">Kadroyu görmek için tıklayın</div>}
         </div>
       )}
 
@@ -386,13 +435,14 @@ function PlayersTab({ players, currentUserData, isAdmin, isMasterAdmin }) {
                   <th className="p-3 rounded-tl-lg w-12 text-center">No</th>
                   <th className="p-3">Ad Soyad</th>
                   <th className="p-3">Pozisyon</th>
+                  <th className="p-3">İletişim</th>
                   {isAdmin && <th className="p-3 text-center">Durum / Rol</th>}
                   {isAdmin && <th className="p-3 rounded-tr-lg text-center">İşlem</th>}
                 </tr>
               </thead>
               <tbody>
                 {approvedPlayers.length === 0 ? (
-                  <tr><td colSpan={isAdmin ? 5 : 3} className="p-4 text-center text-slate-500">Kayıtlı onaylı oyuncu yok.</td></tr>
+                  <tr><td colSpan={isAdmin ? 6 : 4} className="p-4 text-center text-slate-500">Kayıtlı onaylı oyuncu yok.</td></tr>
                 ) : (
                   approvedPlayers.map((p) => {
                     if (isAdmin && editingPlayer?.id === p.id) {
@@ -401,6 +451,7 @@ function PlayersTab({ players, currentUserData, isAdmin, isMasterAdmin }) {
                           <td className="p-2 align-top text-center"><input type="number" className="w-12 bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none text-center" value={editingPlayer.number} onChange={e => setEditingPlayer({...editingPlayer, number: e.target.value})} /></td>
                           <td className="p-2"><div className="flex gap-1"><input type="text" placeholder="Ad" className="w-1/2 bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.firstName} onChange={e => setEditingPlayer({...editingPlayer, firstName: e.target.value})} /><input type="text" placeholder="Soyad" className="w-1/2 bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.lastName} onChange={e => setEditingPlayer({...editingPlayer, lastName: e.target.value})} /></div></td>
                           <td className="p-2 align-top"><select className="w-full bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.position} onChange={e => setEditingPlayer({...editingPlayer, position: e.target.value})}><option>Kaleci</option><option>Defans</option><option>Orta Saha</option><option>Forvet</option></select></td>
+                          <td className="p-2 align-top"><input type="text" placeholder="Tel No" className="w-full bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.phone || ''} onChange={e => setEditingPlayer({...editingPlayer, phone: e.target.value})} /></td>
                           <td colSpan="2" className="p-2 text-center align-top"><div className="flex gap-2 justify-center mt-1"><button onClick={saveEdit} className="text-green-400 hover:text-green-300 font-bold text-xs bg-green-900/40 px-3 py-1.5 rounded border border-green-700">Kaydet</button><button onClick={() => setEditingPlayer(null)} className="text-slate-400 hover:text-slate-300 font-bold text-xs bg-slate-700/80 px-3 py-1.5 rounded border border-slate-600">İptal</button></div></td>
                         </tr>
                       );
@@ -415,6 +466,7 @@ function PlayersTab({ players, currentUserData, isAdmin, isMasterAdmin }) {
                            {isAdmin ? <div className="text-[10px] text-slate-500 font-mono tracking-widest">ID: <span className="text-cyan-500 font-bold">{p.id}</span></div> : <div className="text-[10px] text-slate-500">{p.group || '...'}</div>}
                         </td>
                         <td className="p-3"><span className={`px-2 py-1 rounded text-xs ${p.position === 'Kaleci' ? 'bg-yellow-600/20 text-yellow-400' : p.position === 'Defans' ? 'bg-blue-600/20 text-blue-400' : p.position === 'Orta Saha' ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>{p.position}</span></td>
+                        <td className="p-3 text-xs text-slate-400">{p.phone || '-'}</td>
                         {isAdmin && (<td className="p-3 text-center"><button onClick={() => togglePlayerStatus(p.id, p.isActive !== false)} disabled={p.role === 'master_admin'} className={`px-3 py-1 rounded text-xs font-bold transition-all ${p.isActive !== false ? 'bg-green-600/20 text-green-400 border border-green-500/50 hover:bg-green-600/40' : 'bg-slate-700 text-slate-400 border border-slate-600 hover:bg-slate-600'} disabled:opacity-30 disabled:cursor-not-allowed`}>{p.isActive !== false ? 'Aktif' : 'Pasif'}</button></td>)}
                         {isAdmin && (
                           <td className="p-3">
@@ -447,7 +499,7 @@ function PlayersTab({ players, currentUserData, isAdmin, isMasterAdmin }) {
 // ==========================================
 function SquadTab({ players, matches }) {
   // ... Bu kısım (sürükle bırak kadro) önceki kod ile tamamen aynı
-  const [matchData, setMatchData] = useState({ date: '', time: '', teamAName: 'Ev Sahibi', teamBName: 'Deplasman' });
+  const [matchData, setMatchData] = useState({ date: '', time: '', stadium: '', teamAName: 'Ev Sahibi', teamBName: 'Deplasman' });
   const [pitchPlayers, setPitchPlayers] = useState([]);
   const [substitutes, setSubstitutes] = useState([]);
   const [notification, setNotification] = useState(null);
@@ -465,12 +517,12 @@ function SquadTab({ players, matches }) {
     if (errors.length > 0) { setNotification({ type: 'error', text: `Lütfen eksik bilgileri girin: ${errors.join(', ')}` }); setTimeout(() => setNotification(null), 5000); return; }
 
     const newMatch = {
-      id: generateId(), ...matchData, teamA: pitchPlayers.filter(p => p.team === 'A'), teamB: pitchPlayers.filter(p => p.team === 'B'), subs: substitutes, status: 'pending',
+      id: generateId(), ...matchData, stadium: matchData.stadium.trim() || 'Baykar Park', teamA: pitchPlayers.filter(p => p.team === 'A'), teamB: pitchPlayers.filter(p => p.team === 'B'), subs: substitutes, status: 'pending',
       scoreA: 0, scoreB: 0, events: [], ratings: {}, ratingsClosed: false // Puanlama varsayılan olarak açık
     };
 
     await setDoc(doc(dbPath('matches'), newMatch.id), newMatch);
-    setNotification({ type: 'success', text: 'Kadro başarıyla kaydedildi! Fikstürden maçı başlatabilirsiniz.' }); setTimeout(() => setNotification(null), 4000); setPitchPlayers([]); setSubstitutes([]); setMatchData({ date: '', time: '', teamAName: 'Ev Sahibi', teamBName: 'Deplasman' });
+    setNotification({ type: 'success', text: 'Kadro başarıyla kaydedildi! Fikstürden maçı başlatabilirsiniz.' }); setTimeout(() => setNotification(null), 4000); setPitchPlayers([]); setSubstitutes([]); setMatchData({ date: '', time: '', stadium: '', teamAName: 'Ev Sahibi', teamBName: 'Deplasman' });
   };
 
   const availablePlayers = players.filter(p => p.status === 'approved' && p.isActive !== false && !pitchPlayers.find(pp => pp.playerId === p.id) && !substitutes.includes(p.id));
@@ -479,9 +531,10 @@ function SquadTab({ players, matches }) {
     <div className="space-y-6">
       {notification && <div className={`p-4 rounded-lg font-bold border shadow-lg transition-all ${notification.type === 'error' ? 'bg-red-900/50 text-red-400 border-red-500' : 'bg-green-900/50 text-green-400 border-green-500'}`}>{notification.text}</div>}
       <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
           <div><label className="block text-xs text-slate-400 mb-1">Maç Tarihi</label><input type="date" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={matchData.date} onChange={e => setMatchData({...matchData, date: e.target.value})} /></div>
           <div><label className="block text-xs text-slate-400 mb-1">Maç Saati</label><input type="time" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={matchData.time} onChange={e => setMatchData({...matchData, time: e.target.value})} /></div>
+          <div><label className="block text-xs text-slate-400 mb-1">Stadyum</label><input type="text" placeholder="Baykar Park" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={matchData.stadium} onChange={e => setMatchData({...matchData, stadium: e.target.value})} /></div>
           <div><label className="block text-xs text-cyan-400 mb-1">Takım A İsmi</label><input type="text" className="w-full bg-blue-900/50 border border-blue-500 rounded p-2 text-white outline-none focus:border-cyan-400" value={matchData.teamAName} onChange={e => setMatchData({...matchData, teamAName: e.target.value})} /></div>
           <div><label className="block text-xs text-pink-400 mb-1">Takım B İsmi</label><input type="text" className="w-full bg-pink-900/50 border border-pink-500 rounded p-2 text-white outline-none focus:border-cyan-400" value={matchData.teamBName} onChange={e => setMatchData({...matchData, teamBName: e.target.value})} /></div>
         </div>
@@ -575,6 +628,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     await updateDoc(doc(dbPath('matches'), editingMatch.id), {
       date: editingMatch.date,
       time: editingMatch.time,
+      stadium: editingMatch.stadium || 'Baykar Park',
       teamAName: editingMatch.teamAName,
       teamBName: editingMatch.teamBName
     });
@@ -629,8 +683,8 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
             className={`${THEME.panel} p-4 rounded-xl border ${selectedMatch?.id === m.id ? 'border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.2)]' : THEME.border} cursor-pointer hover:bg-slate-700 transition-all`}
           >
             <div className="flex justify-between text-xs text-slate-400 mb-2">
-              <span>{m.date}</span>
-              <span>{m.time}</span>
+              <span>{m.date} - {m.time}</span>
+              <span className="truncate ml-2 text-right">📍 {m.stadium || 'Baykar Park'}</span>
             </div>
             <div className="flex items-center justify-between font-bold">
               <span className="text-blue-400 truncate w-1/3">{m.teamAName}</span>
@@ -667,9 +721,10 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
             {/* Düzenleme Formu (Aktifse) */}
             {editingMatch?.id === selectedMatch.id ? (
                <div className="bg-slate-900 p-4 rounded-lg border border-blue-500/50 mb-6 space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div><label className="block text-xs text-slate-400 mb-1">Tarih</label><input type="date" className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white outline-none focus:border-cyan-400 text-sm" value={editingMatch.date} onChange={e => setEditingMatch({...editingMatch, date: e.target.value})} /></div>
                     <div><label className="block text-xs text-slate-400 mb-1">Saat</label><input type="time" className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white outline-none focus:border-cyan-400 text-sm" value={editingMatch.time} onChange={e => setEditingMatch({...editingMatch, time: e.target.value})} /></div>
+                    <div><label className="block text-xs text-slate-400 mb-1">Stadyum</label><input type="text" placeholder="Baykar Park" className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white outline-none focus:border-cyan-400 text-sm" value={editingMatch.stadium || ''} onChange={e => setEditingMatch({...editingMatch, stadium: e.target.value})} /></div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div><label className="block text-xs text-slate-400 mb-1">Takım A İsmi</label><input type="text" className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white outline-none focus:border-cyan-400 text-sm" value={editingMatch.teamAName} onChange={e => setEditingMatch({...editingMatch, teamAName: e.target.value})} /></div>
@@ -682,7 +737,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                </div>
             ) : (
               <div className="text-center mb-8">
-                <div className="text-sm text-slate-400 mb-2">{selectedMatch.date} - {selectedMatch.time}</div>
+                <div className="text-sm text-slate-400 mb-2">{selectedMatch.date} - {selectedMatch.time} | 📍 {selectedMatch.stadium || 'Baykar Park'}</div>
                 <div className="flex justify-center items-center gap-8 text-3xl font-black">
                   <div className="text-blue-400">{selectedMatch.teamAName}</div>
                   <div className="bg-slate-900 px-6 py-2 rounded-xl border border-slate-700 shadow-inner">
@@ -801,7 +856,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                               <div className="flex justify-between items-center text-sm">
                                 <span className="truncate w-32 font-medium">{getPlayerName(p.playerId)}</span>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-xs font-mono font-bold text-yellow-400 w-8 text-right">{avg ? avg : '-'}</span>
+                                  <span className="text-xs font-mono font-bold text-yellow-400 w-8 text-right">{selectedMatch.ratingsClosed ? (avg ? avg : '-') : '?'}</span>
                                   {canRate && (
                                     <input type="number" min="1" max="10" step="1" placeholder="Puan"
                                       className="w-14 bg-slate-900 border border-slate-600 rounded p-1 text-center text-white text-xs outline-none focus:border-cyan-400"
@@ -834,7 +889,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                               <div className="flex justify-between items-center text-sm">
                                 <span className="truncate w-32 font-medium">{getPlayerName(p.playerId)}</span>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-xs font-mono font-bold text-yellow-400 w-8 text-right">{avg ? avg : '-'}</span>
+                                  <span className="text-xs font-mono font-bold text-yellow-400 w-8 text-right">{selectedMatch.ratingsClosed ? (avg ? avg : '-') : '?'}</span>
                                   {canRate && (
                                     <input type="number" min="1" max="10" step="1" placeholder="Puan"
                                       className="w-14 bg-slate-900 border border-slate-600 rounded p-1 text-center text-white text-xs outline-none focus:border-cyan-400"
@@ -926,13 +981,16 @@ function StatsTab({ players, matches }) {
     allPlayersInMatch.forEach(pObj => {
       if(statsMap[pObj.playerId]) {
         statsMap[pObj.playerId].matches += 1;
-        const playerRatings = m.ratings[pObj.playerId];
-        if (playerRatings) {
-          const vals = Object.values(playerRatings);
-          if (vals.length > 0) {
-            const matchAvg = vals.reduce((a, b) => a + b, 0) / vals.length;
-            statsMap[pObj.playerId].ratingSum += matchAvg;
-            statsMap[pObj.playerId].ratingCount += 1;
+        // Sadece puanlama kapatılmış maçların puanlarını istatistiklere yansıt
+        if (m.ratingsClosed) {
+          const playerRatings = m.ratings[pObj.playerId];
+          if (playerRatings) {
+            const vals = Object.values(playerRatings);
+            if (vals.length > 0) {
+              const matchAvg = vals.reduce((a, b) => a + b, 0) / vals.length;
+              statsMap[pObj.playerId].ratingSum += matchAvg;
+              statsMap[pObj.playerId].ratingCount += 1;
+            }
           }
         }
       }
