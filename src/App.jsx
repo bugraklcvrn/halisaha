@@ -160,11 +160,12 @@ function AuthScreen({ setAppUserId, players }) {
   const [isLogin, setIsLogin] = useState(true);
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [registeredId, setRegisteredId] = useState(null);
 
   const [loginId, setLoginId] = useState('');
   const [loginPass, setLoginPass] = useState('');
 
-  const [regData, setRegData] = useState({ firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '' });
+  const [regData, setRegData] = useState({ firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '', passwordConfirm: '' });
 
   const usedNumbers = players.map(p => Number(p.number));
   const availableNumbers = Array.from({length: 99}, (_, i) => i + 1);
@@ -189,6 +190,10 @@ function AuthScreen({ setAppUserId, players }) {
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!regData.firstName || !regData.number || !regData.position || !regData.password) return;
+    if (regData.password !== regData.passwordConfirm) {
+      showNotif('error', 'Şifreler eşleşmiyor! Lütfen iki şifreyi de aynı giriniz.');
+      return;
+    }
     
     setIsSubmitting(true);
     const isFirstUser = players.length === 0;
@@ -196,21 +201,45 @@ function AuthScreen({ setAppUserId, players }) {
     let newId;
     do { newId = generatePlayerId(); } while (players.some(p => p.id === newId));
 
-    const newUserDoc = { ...regData, id: newId, role: isFirstUser ? 'master_admin' : 'user', status: isFirstUser ? 'approved' : 'pending', isActive: true, registeredAt: Date.now() };
+    const { passwordConfirm, ...dbData } = regData; // passwordConfirm veritabanına gitmesin
+    const newUserDoc = { ...dbData, id: newId, role: isFirstUser ? 'master_admin' : 'user', status: isFirstUser ? 'approved' : 'pending', isActive: true, registeredAt: Date.now() };
 
     await setDoc(doc(dbPath('players'), newId), newUserDoc);
     
-    setRegData({ firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '' });
+    setRegData({ firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '', passwordConfirm: '' });
     setIsSubmitting(false);
 
     if (isFirstUser) {
       localStorage.setItem('halisaha_userId', newId);
       setAppUserId(newId);
     } else {
-      showNotif('success', `Kayıt başarıyla alındı! Hesap ID'niz: ${newId}. Admin onayından sonra giriş yapabilirsiniz.`);
-      setIsLogin(true); // Kayıt başarılı olunca Giriş sayfasına at
+      setRegisteredId(newId); // ID ekranını göstermek için tetikleyici
     }
   };
+
+  // KULLANICI KAYIT OLDUKTAN SONRA GÖRECEĞİ EKRAN
+  if (registeredId) {
+    return (
+      <div className={`min-h-screen ${THEME.bg} ${THEME.text} flex flex-col items-center justify-center p-6 text-center`}>
+         <div className={`${THEME.panel} p-8 rounded-2xl border border-green-500/50 shadow-[0_0_30px_rgba(34,197,94,0.3)] max-w-md w-full`}>
+            <Check size={64} className="text-green-400 mx-auto mb-6" />
+            <h2 className="text-2xl font-black mb-2 text-white">Kayıt Başarılı!</h2>
+            <p className="text-slate-400 mb-6 text-sm">Sisteme giriş yapabilmeniz için gereken Hesap ID numaranız aşağıdadır. Admin onayından sonra giriş yapabileceksiniz.</p>
+            <div className="bg-slate-900 border border-cyan-500 p-4 rounded-lg mb-6">
+               <div className="text-xs text-cyan-400 font-bold mb-1 uppercase tracking-widest">Hesap ID'niz</div>
+               <div className="text-5xl font-black font-mono text-white tracking-widest">{registeredId}</div>
+            </div>
+            <div className="bg-red-900/40 border border-red-500/50 text-red-300 p-3 rounded-lg text-sm font-bold mb-6 flex flex-col gap-1 items-center">
+               <ShieldAlert size={20}/>
+               LÜTFEN ID NUMARANIZI NOT EDİNİZ!
+            </div>
+            <button onClick={() => {setRegisteredId(null); setIsLogin(true);}} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition-colors">
+              Giriş Ekranına Dön
+            </button>
+         </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`min-h-screen ${THEME.bg} ${THEME.text} flex items-center justify-center p-4`}>
@@ -272,9 +301,15 @@ function AuthScreen({ setAppUserId, players }) {
               <div><label className="block text-xs text-slate-400 mb-1">Telefon No</label><input type="tel" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.phone} onChange={e => setRegData({...regData, phone: e.target.value})} /></div>
               <div><label className="block text-xs text-slate-400 mb-1">Ekip/Grup</label><input type="text" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.group} onChange={e => setRegData({...regData, group: e.target.value})} /></div>
             </div>
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Şifre Belirle <span className="text-red-500">*</span></label>
-              <input required type="password" placeholder="Hesabın için bir şifre gir" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.password} onChange={e => setRegData({...regData, password: e.target.value})} />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Şifre Belirle <span className="text-red-500">*</span></label>
+                <input required type="password" placeholder="Şifre" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.password} onChange={e => setRegData({...regData, password: e.target.value})} />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Şifre Tekrar <span className="text-red-500">*</span></label>
+                <input required type="password" placeholder="Şifre Tekrar" className={`w-full bg-slate-900 border rounded p-2 text-white outline-none focus:border-cyan-400 ${regData.passwordConfirm && regData.password !== regData.passwordConfirm ? 'border-red-500' : 'border-slate-700'}`} value={regData.passwordConfirm} onChange={e => setRegData({...regData, passwordConfirm: e.target.value})} />
+              </div>
             </div>
             <button type="submit" disabled={isSubmitting} className={`w-full mt-4 py-3 rounded-lg font-bold transition-all flex justify-center items-center gap-2 ${isSubmitting ? 'bg-slate-700 text-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-lg'}`}>
               {isSubmitting ? <Star className="animate-spin" size={18} /> : null}
@@ -291,7 +326,6 @@ function AuthScreen({ setAppUserId, players }) {
 // 1. OYUNCU YÖNETİMİ SEKRESİ
 // ==========================================
 function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin }) {
-  // ... Bu kısım (oyuncu yönetimi) önceki kod ile tamamen aynı
   const [formData, setFormData] = useState({ firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '' });
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [editingPlayer, setEditingPlayer] = useState(null);
@@ -436,13 +470,14 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
                   <th className="p-3">Ad Soyad</th>
                   <th className="p-3">Pozisyon</th>
                   <th className="p-3">İletişim</th>
+                  {isMasterAdmin && <th className="p-3 text-cyan-400">Şifre</th>}
                   {isAdmin && <th className="p-3 text-center">Durum / Rol</th>}
                   {isAdmin && <th className="p-3 rounded-tr-lg text-center">İşlem</th>}
                 </tr>
               </thead>
               <tbody>
                 {approvedPlayers.length === 0 ? (
-                  <tr><td colSpan={isAdmin ? 6 : 4} className="p-4 text-center text-slate-500">Kayıtlı onaylı oyuncu yok.</td></tr>
+                  <tr><td colSpan={isMasterAdmin ? 7 : (isAdmin ? 6 : 4)} className="p-4 text-center text-slate-500">Kayıtlı onaylı oyuncu yok.</td></tr>
                 ) : (
                   approvedPlayers.map((p) => {
                     if (isAdmin && editingPlayer?.id === p.id) {
@@ -452,6 +487,7 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
                           <td className="p-2"><div className="flex gap-1"><input type="text" placeholder="Ad" className="w-1/2 bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.firstName} onChange={e => setEditingPlayer({...editingPlayer, firstName: e.target.value})} /><input type="text" placeholder="Soyad" className="w-1/2 bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.lastName} onChange={e => setEditingPlayer({...editingPlayer, lastName: e.target.value})} /></div></td>
                           <td className="p-2 align-top"><select className="w-full bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.position} onChange={e => setEditingPlayer({...editingPlayer, position: e.target.value})}><option>Kaleci</option><option>Defans</option><option>Orta Saha</option><option>Forvet</option></select></td>
                           <td className="p-2 align-top"><input type="text" placeholder="Tel No" className="w-full bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.phone || ''} onChange={e => setEditingPlayer({...editingPlayer, phone: e.target.value})} /></td>
+                          {isMasterAdmin && <td className="p-2 align-top"><input type="text" placeholder="Şifre" className="w-full bg-slate-900 border border-cyan-600/50 rounded p-1 text-white text-xs outline-none" value={editingPlayer.password} onChange={e => setEditingPlayer({...editingPlayer, password: e.target.value})} /></td>}
                           <td colSpan="2" className="p-2 text-center align-top"><div className="flex gap-2 justify-center mt-1"><button onClick={saveEdit} className="text-green-400 hover:text-green-300 font-bold text-xs bg-green-900/40 px-3 py-1.5 rounded border border-green-700">Kaydet</button><button onClick={() => setEditingPlayer(null)} className="text-slate-400 hover:text-slate-300 font-bold text-xs bg-slate-700/80 px-3 py-1.5 rounded border border-slate-600">İptal</button></div></td>
                         </tr>
                       );
@@ -467,6 +503,7 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
                         </td>
                         <td className="p-3"><span className={`px-2 py-1 rounded text-xs ${p.position === 'Kaleci' ? 'bg-yellow-600/20 text-yellow-400' : p.position === 'Defans' ? 'bg-blue-600/20 text-blue-400' : p.position === 'Orta Saha' ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>{p.position}</span></td>
                         <td className="p-3 text-xs text-slate-400">{p.phone || '-'}</td>
+                        {isMasterAdmin && <td className="p-3 text-xs font-mono font-bold text-cyan-400 bg-slate-900/50">{p.password}</td>}
                         {isAdmin && (<td className="p-3 text-center"><button onClick={() => togglePlayerStatus(p.id, p.isActive !== false)} disabled={p.role === 'master_admin'} className={`px-3 py-1 rounded text-xs font-bold transition-all ${p.isActive !== false ? 'bg-green-600/20 text-green-400 border border-green-500/50 hover:bg-green-600/40' : 'bg-slate-700 text-slate-400 border border-slate-600 hover:bg-slate-600'} disabled:opacity-30 disabled:cursor-not-allowed`}>{p.isActive !== false ? 'Aktif' : 'Pasif'}</button></td>)}
                         {isAdmin && (
                           <td className="p-3">
@@ -498,7 +535,6 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
 // 2. KADRO KURMA SEKRESİ (Sadece Adminler)
 // ==========================================
 function SquadTab({ players, matches }) {
-  // ... Bu kısım (sürükle bırak kadro) önceki kod ile tamamen aynı
   const [matchData, setMatchData] = useState({ date: '', time: '', stadium: '', teamAName: 'Ev Sahibi', teamBName: 'Deplasman' });
   const [pitchPlayers, setPitchPlayers] = useState([]);
   const [substitutes, setSubstitutes] = useState([]);
@@ -593,6 +629,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [confirmEndMatchId, setConfirmEndMatchId] = useState(null);
   const [editingMatch, setEditingMatch] = useState(null);
+  const [editingEvent, setEditingEvent] = useState(null); // Gol düzenleme için state
   
   const sortedMatches = [...matches].sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`));
   const selectedMatch = matches.find(m => m.id === selectedMatchId);
@@ -635,6 +672,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     setEditingMatch(null);
   };
 
+  // --- GOL VE ASİST DÜZENLEME ---
   const handleAddGoal = async (teamScored, scorerId, assistId) => {
     if (!isAdmin) return;
     const newEvents = [...selectedMatch.events];
@@ -644,9 +682,40 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     await updateDoc(doc(dbPath('matches'), selectedMatch.id), { events: newEvents, scoreA: scoreAAtTime, scoreB: scoreBAtTime });
   };
 
+  const saveEventEdit = async () => {
+    if (!isAdmin || !editingEvent || !editingEvent.scorerId) return;
+    const newEvents = selectedMatch.events.map(e => 
+      e.id === editingEvent.id 
+        ? { ...e, scorerId: editingEvent.scorerId, assistId: editingEvent.assistId === 'none' ? null : editingEvent.assistId } 
+        : e
+    );
+    await updateDoc(doc(dbPath('matches'), selectedMatch.id), { events: newEvents });
+    setEditingEvent(null);
+  };
+
+  const deleteEvent = async (eventId) => {
+    if (!isAdmin) return;
+    if (!window.confirm("Bu golü silmek istediğinize emin misiniz? Maç skoru yeniden hesaplanacaktır.")) return;
+    
+    const newEvents = selectedMatch.events.filter(e => e.id !== eventId);
+    let newScoreA = 0; let newScoreB = 0;
+    
+    // Goller silinince kalan gollerin kronolojik skorlarını yeniden hesapla
+    const recalculatedEvents = newEvents.map(e => {
+       if (e.team === 'A') newScoreA++;
+       if (e.team === 'B') newScoreB++;
+       return { ...e, scoreAAtTime: newScoreA, scoreBAtTime: newScoreB };
+    });
+    
+    await updateDoc(doc(dbPath('matches'), selectedMatch.id), { events: recalculatedEvents, scoreA: newScoreA, scoreB: newScoreB });
+  };
+
+
   // --- PUANLAMA İŞLEMLERİ ---
   const handleRatingChange = async (playerId, val) => {
-    if (selectedMatch.ratingsClosed) return; // Puanlama kapalıysa işlem yapma
+    if (selectedMatch.ratingsClosed) return; 
+    if (playerId === currentUserData.id) return; // Kendi kendine puan veremez
+
     const numVal = Number(val);
     if (numVal < 1 || numVal > 10) return;
     const newRatings = { ...selectedMatch.ratings };
@@ -658,18 +727,38 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
   const myTeam = selectedMatch?.teamA.some(p => p.playerId === currentUserData.id) ? 'A' :
                  selectedMatch?.teamB.some(p => p.playerId === currentUserData.id) ? 'B' : null;
 
-  const canRatePlayer = (playerId, playerTeamStr) => {
+  const canRatePlayer = (playerId) => {
     if (selectedMatch?.ratingsClosed) return false;
-    if (myTeam === playerTeamStr) return true;
-    return false;
+    if (playerId === currentUserData.id) return false; // Kendisi hariç
+    if (!myTeam) return false; // Maçta oynamıyorsa puan veremez
+    return true; // Karşı takım dahil herkese puan verebilir
   };
 
   const getAverageRating = (playerId) => {
     const pRatings = selectedMatch?.ratings[playerId];
     if (!pRatings) return null;
-    const vals = Object.values(pRatings);
-    if (vals.length === 0) return null;
-    return (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1);
+    
+    // Kendi kendine verilen puanları hesaplamadan ÇIKAR
+    const validVals = Object.entries(pRatings)
+      .filter(([raterId]) => raterId !== playerId)
+      .map(([_, val]) => val);
+      
+    if (validVals.length === 0) return null;
+    let avg = validVals.reduce((a, b) => a + b, 0) / validVals.length;
+
+    // KAYBEDEN TAKIM CEZASI (-1 Puan)
+    if (selectedMatch?.status === 'completed') {
+      const isTeamA = selectedMatch.teamA.some(p => p.playerId === playerId);
+      const isTeamB = selectedMatch.teamB.some(p => p.playerId === playerId);
+      const lostMatch = (isTeamA && selectedMatch.scoreA < selectedMatch.scoreB) || 
+                        (isTeamB && selectedMatch.scoreB < selectedMatch.scoreA);
+      
+      if (lostMatch) {
+         avg = Math.max(1, avg - 1); // 1 puan düş, minimum 1 olsun
+      }
+    }
+
+    return avg.toFixed(1);
   };
 
   return (
@@ -768,7 +857,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                   </div>
                 )}
 
-                {/* Timeline */}
+                {/* Timeline (Maç Olayları) */}
                 {selectedMatch.events.length > 0 && (
                   <div className="mt-8 mb-6">
                     <h3 className="font-bold text-sm mb-6 border-b border-slate-700 pb-2 text-center text-slate-400 uppercase tracking-widest">Maç Olayları</h3>
@@ -776,6 +865,32 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                       <div className="absolute top-0 bottom-0 w-px bg-slate-600 left-1/2 transform -translate-x-1/2"></div>
                       {selectedMatch.events.map((ev, idx) => {
                         const scoreDisplay = ev.scoreAAtTime !== undefined ? `${ev.scoreAAtTime} - ${ev.scoreBAtTime}` : '? - ?';
+                        
+                        // GOL DÜZENLEME EKRANI
+                        if (editingEvent?.id === ev.id) {
+                          const teamPlayers = selectedMatch[`team${ev.team}`].map(tp => players.find(p => p.id === tp.playerId)).filter(Boolean);
+                          return (
+                            <div key={ev.id} className="w-full bg-slate-800 p-3 rounded-lg border border-cyan-500 my-2 flex flex-col gap-2 z-30 max-w-md mx-auto shadow-lg">
+                              <div className="text-cyan-400 font-bold text-xs mb-1">Golü Düzenle ({ev.team === 'A' ? selectedMatch.teamAName : selectedMatch.teamBName})</div>
+                              <div className="flex gap-2">
+                                <select className="flex-1 bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs" value={editingEvent.scorerId} onChange={e => setEditingEvent({...editingEvent, scorerId: e.target.value})}>
+                                  <option value="own_goal">Kendi Kalesine</option>
+                                  {teamPlayers.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+                                </select>
+                                <select className="flex-1 bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs" value={editingEvent.assistId || 'none'} onChange={e => setEditingEvent({...editingEvent, assistId: e.target.value})} disabled={editingEvent.scorerId === 'own_goal'}>
+                                  <option value="none">Asist Yok</option>
+                                  {teamPlayers.filter(p => p.id !== editingEvent.scorerId).map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+                                </select>
+                              </div>
+                              <div className="flex gap-2 justify-end mt-1">
+                                <button onClick={() => setEditingEvent(null)} className="text-slate-400 hover:text-white text-xs px-3 py-1 bg-slate-700 rounded">İptal</button>
+                                <button onClick={saveEventEdit} className="text-green-400 hover:text-green-300 text-xs px-3 py-1 bg-green-900/40 border border-green-700 rounded font-bold">Kaydet</button>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        // NORMAL GOL GÖSTERİMİ
                         return (
                           <div key={ev.id} className="w-full flex items-center justify-between mb-4 relative z-10 group hover:scale-105 transition-transform duration-200">
                             <div className={`w-1/2 pr-6 text-right ${ev.team === 'A' ? 'opacity-100' : 'opacity-0'}`}>
@@ -787,12 +902,20 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                     <span className="bg-slate-800 text-slate-200 px-2 py-0.5 rounded border border-slate-600 font-mono text-xs ml-1">[{scoreDisplay}]</span>
                                     <Goal size={16} className="text-blue-400 ml-1" />
                                   </span>
+                                  {isAdmin && (
+                                    <div className="flex gap-2 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <button onClick={() => setEditingEvent(ev)} className="text-blue-400 hover:text-blue-300"><Edit size={12} /></button>
+                                      <button onClick={() => deleteEvent(ev.id)} className="text-red-400 hover:text-red-300"><Trash2 size={12} /></button>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
+                            
                             <div className="absolute left-1/2 transform -translate-x-1/2 bg-slate-900 border-[3px] border-slate-500 rounded-full w-9 h-9 flex items-center justify-center text-sm font-black text-white shadow-[0_0_15px_rgba(0,0,0,0.5)] z-20">
                               {idx + 1}
                             </div>
+                            
                             <div className={`w-1/2 pl-6 text-left ${ev.team === 'B' ? 'opacity-100' : 'opacity-0'}`}>
                               {ev.team === 'B' && (
                                 <div className="flex flex-col items-start">
@@ -802,6 +925,12 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                     {getPlayerName(ev.scorerId)}
                                     {ev.assistId && <span className="text-xs text-slate-400 font-normal">(asist: {getPlayerName(ev.assistId)})</span>}
                                   </span>
+                                  {isAdmin && (
+                                    <div className="flex gap-2 mt-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <button onClick={() => setEditingEvent(ev)} className="text-blue-400 hover:text-blue-300"><Edit size={12} /></button>
+                                      <button onClick={() => deleteEvent(ev.id)} className="text-red-400 hover:text-red-300"><Trash2 size={12} /></button>
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -832,12 +961,12 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
 
                    {!selectedMatch.ratingsClosed && myTeam && (
                      <div className="text-xs text-cyan-400 mb-4 bg-cyan-900/20 p-2 rounded border border-cyan-800">
-                       Bilgi: Sadece kendi takımın ({myTeam === 'A' ? selectedMatch.teamAName : selectedMatch.teamBName}) için 1-10 arası puan girebilirsin. Puanlama "Puanlamayı Bitir" butonuna basılana kadar devam eder.
+                       Bilgi: Kendi takımın ve karşı takım için 1-10 arası puan girebilirsin. Kendine puan veremezsin. Puanlama "Puanlamayı Bitir" butonuna basılana kadar devam eder.
                      </div>
                    )}
                    {selectedMatch.ratingsClosed && (
                      <div className="text-xs text-red-400 mb-4 bg-red-900/20 p-2 rounded border border-red-800">
-                       Puanlama asıl admin tarafından sonlandırılmıştır. Yeni puan girilemez.
+                       Puanlama asıl admin tarafından sonlandırılmıştır. Yeni puan girilemez. Kaybeden takımın oyuncularından -1 Puan düşüldü.
                      </div>
                    )}
 
@@ -848,8 +977,10 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                         {selectedMatch.teamA.map(p => {
                           const avg = getAverageRating(p.playerId);
                           const myRating = selectedMatch.ratings[p.playerId]?.[currentUserData.id] || '';
-                          const canRate = canRatePlayer(p.playerId, 'A');
-                          const allRatings = selectedMatch.ratings[p.playerId] || {};
+                          const canRate = canRatePlayer(p.playerId);
+                          
+                          // Adminler kendi puanlarını çıkarılmış halde görebilsin
+                          const allValidRatings = Object.entries(selectedMatch.ratings[p.playerId] || {}).filter(([rId]) => rId !== p.playerId);
 
                           return (
                             <div key={p.playerId} className="bg-slate-900/30 p-2 rounded flex flex-col justify-center">
@@ -865,9 +996,9 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                 </div>
                               </div>
                               {/* ASIL ADMIN İÇİN DETAYLI PUAN GÖSTERİMİ */}
-                              {isMasterAdmin && Object.keys(allRatings).length > 0 && (
+                              {isMasterAdmin && allValidRatings.length > 0 && (
                                 <div className="text-[10px] text-slate-500 mt-2 border-t border-slate-700/50 pt-1 italic">
-                                  <span className="font-bold text-slate-400">Puanlar:</span> {Object.entries(allRatings).map(([raterId, score]) => `${getPlayerName(raterId)} (${score})`).join(', ')}
+                                  <span className="font-bold text-slate-400">Puanlar:</span> {allValidRatings.map(([raterId, score]) => `${getPlayerName(raterId)} (${score})`).join(', ')}
                                 </div>
                               )}
                             </div>
@@ -881,8 +1012,9 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                         {selectedMatch.teamB.map(p => {
                            const avg = getAverageRating(p.playerId);
                            const myRating = selectedMatch.ratings[p.playerId]?.[currentUserData.id] || '';
-                           const canRate = canRatePlayer(p.playerId, 'B');
-                           const allRatings = selectedMatch.ratings[p.playerId] || {};
+                           const canRate = canRatePlayer(p.playerId);
+                           
+                           const allValidRatings = Object.entries(selectedMatch.ratings[p.playerId] || {}).filter(([rId]) => rId !== p.playerId);
 
                            return (
                             <div key={p.playerId} className="bg-slate-900/30 p-2 rounded flex flex-col justify-center">
@@ -898,9 +1030,9 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                 </div>
                               </div>
                               {/* ASIL ADMIN İÇİN DETAYLI PUAN GÖSTERİMİ */}
-                              {isMasterAdmin && Object.keys(allRatings).length > 0 && (
+                              {isMasterAdmin && allValidRatings.length > 0 && (
                                 <div className="text-[10px] text-slate-500 mt-2 border-t border-slate-700/50 pt-1 italic">
-                                  <span className="font-bold text-slate-400">Puanlar:</span> {Object.entries(allRatings).map(([raterId, score]) => `${getPlayerName(raterId)} (${score})`).join(', ')}
+                                  <span className="font-bold text-slate-400">Puanlar:</span> {allValidRatings.map(([raterId, score]) => `${getPlayerName(raterId)} (${score})`).join(', ')}
                                 </div>
                               )}
                             </div>
@@ -985,9 +1117,22 @@ function StatsTab({ players, matches }) {
         if (m.ratingsClosed) {
           const playerRatings = m.ratings[pObj.playerId];
           if (playerRatings) {
-            const vals = Object.values(playerRatings);
-            if (vals.length > 0) {
-              const matchAvg = vals.reduce((a, b) => a + b, 0) / vals.length;
+            // Kendi kendine verdiği oyları sistemden dışla (Rule 1)
+            const validVals = Object.entries(playerRatings)
+              .filter(([raterId]) => raterId !== pObj.playerId)
+              .map(([_, val]) => val);
+              
+            if (validVals.length > 0) {
+              let matchAvg = validVals.reduce((a, b) => a + b, 0) / validVals.length;
+              
+              // KAYBEDEN TAKIM CEZASI (-1 Puan)
+              const isTeamA = m.teamA.some(p => p.playerId === pObj.playerId);
+              const isTeamB = m.teamB.some(p => p.playerId === pObj.playerId);
+              const lostMatch = (isTeamA && m.scoreA < m.scoreB) || (isTeamB && m.scoreB < m.scoreA);
+              if (lostMatch) {
+                 matchAvg = Math.max(1, matchAvg - 1); // Minimum 1 puana kadar düşür
+              }
+
               statsMap[pObj.playerId].ratingSum += matchAvg;
               statsMap[pObj.playerId].ratingCount += 1;
             }
