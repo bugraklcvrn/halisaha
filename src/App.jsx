@@ -66,38 +66,63 @@ const getTrimmedRatingData = (ratingsObj, targetPlayerId) => {
   return { avg, excludedMinRater, excludedMaxRater };
 };
 
+// --- BİREYSEL MAÇ PUANI HESAPLAYICI (+0.01 Gol/Asist Etkisi) ---
+const calcPlayerMatchRating = (match, playerId) => {
+  const ratingData = getTrimmedRatingData(match.ratings?.[playerId], playerId);
+  if (ratingData.avg === null) return null;
+
+  let avg = ratingData.avg;
+
+  const goals = match.events.filter(ev => ev.type === 'goal' && ev.scorerId === playerId).length;
+  const assists = match.events.filter(ev => ev.type === 'goal' && ev.assistId === playerId).length;
+
+  // Gol ve Asist başına +0.01 ekle
+  avg += (goals + assists) * 0.01;
+  
+  return Math.max(1, Math.min(10, avg));
+};
+
 // Genel İstatistik Hesaplayıcı
 const getPlayerStatsMap = (players, matches) => {
-  const completedMatches = matches.filter(m => m.status === 'completed');
+  // Maçları tarihe göre eskiden yeniye sırala (Son 5 maç geçmişi için önemli)
+  const completedMatches = [...matches].filter(m => m.status === 'completed').sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`));
   const statsMap = {};
   
   players.forEach(p => { 
-    statsMap[p.id] = { id: p.id, name: `${p.firstName} ${p.lastName}`, matches: 0, goals: 0, assists: 0, ratingSum: 0, ratingCount: 0 }; 
+    statsMap[p.id] = { 
+       id: p.id, name: `${p.firstName} ${p.lastName}`, avatar: p.avatar, number: p.number, 
+       matches: 0, goals: 0, assists: 0, wins: 0, draws: 0, losses: 0, 
+       ratingSum: 0, ratingCount: 0, matchHistory: [] 
+    }; 
   });
 
   completedMatches.forEach(m => {
     const allPlayersInMatch = [...m.teamA, ...m.teamB, ...m.subs.map(id => ({playerId: id}))];
     
     allPlayersInMatch.forEach(pObj => {
-      if(statsMap[pObj.playerId]) {
-        statsMap[pObj.playerId].matches += 1;
+      const stat = statsMap[pObj.playerId];
+      if(stat) {
+        stat.matches += 1;
+        
+        // Galibiyet, Beraberlik, Mağlubiyet hesapla
+        const isTeamA = m.teamA.some(p => p.playerId === pObj.playerId);
+        const isTeamB = m.teamB.some(p => p.playerId === pObj.playerId);
+        
+        if (m.scoreA === m.scoreB) {
+            stat.draws++;
+        } else if ((isTeamA && m.scoreA > m.scoreB) || (isTeamB && m.scoreB > m.scoreA)) {
+            stat.wins++;
+        } else {
+            stat.losses++;
+        }
+
+        // Puan hesaplaması (Kapanmışsa)
         if (m.ratingsClosed) {
-          const ratingData = getTrimmedRatingData(m.ratings[pObj.playerId], pObj.playerId);
-          if (ratingData.avg !== null) {
-              let matchAvg = ratingData.avg;
-              
-              const isTeamA = m.teamA.some(p => p.playerId === pObj.playerId);
-              const isTeamB = m.teamB.some(p => p.playerId === pObj.playerId);
-              const wonMatch = (isTeamA && m.scoreA > m.scoreB) || (isTeamB && m.scoreB > m.scoreA);
-              const lostMatch = (isTeamA && m.scoreA < m.scoreB) || (isTeamB && m.scoreB < m.scoreA);
-              
-              if (wonMatch) matchAvg += 0.5;
-              else if (lostMatch) matchAvg -= 0.5;
-
-              matchAvg = Math.max(1, Math.min(10, matchAvg));
-
-              statsMap[pObj.playerId].ratingSum += matchAvg;
-              statsMap[pObj.playerId].ratingCount += 1;
+          const finalRating = calcPlayerMatchRating(m, pObj.playerId);
+          if (finalRating !== null) {
+              stat.ratingSum += finalRating;
+              stat.ratingCount += 1;
+              stat.matchHistory.push({ date: m.date, rating: finalRating.toFixed(2) });
           }
         }
       }
@@ -262,7 +287,6 @@ function AuthScreen({ setAppUserId, players }) {
     if (!loginId || !loginPass) return;
     const loginQuery = loginId.trim().toLowerCase();
     
-    // Hem ID hem de kullanıcı adına göre giriş yapabilme
     const user = players.find(p => 
       (p.id.toLowerCase() === loginQuery || (p.username && p.username.toLowerCase() === loginQuery)) && 
       p.password === loginPass
@@ -280,7 +304,6 @@ function AuthScreen({ setAppUserId, players }) {
     e.preventDefault();
     if (!regData.firstName || !regData.number || !regData.position || !regData.password) return;
     
-    // Kullanıcı adı benzersizlik kontrolü
     if (regData.username) {
       const usernameNorm = regData.username.trim().toLowerCase();
       if (players.some(p => p.username && p.username.toLowerCase() === usernameNorm)) {
@@ -973,28 +996,15 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
 
     const allPlayers = [...match.teamA, ...match.teamB];
     allPlayers.forEach(p => {
-        const ratingData = getTrimmedRatingData(match.ratings[p.playerId], p.playerId);
-        if (ratingData.avg === null) return;
-
-        let avg = ratingData.avg;
-
-        const isTeamA = match.teamA.some(x => x.playerId === p.playerId);
-        const isTeamB = match.teamB.some(x => x.playerId === p.playerId);
-        const wonMatch = (isTeamA && match.scoreA > match.scoreB) || (isTeamB && match.scoreB > match.scoreA);
-        const lostMatch = (isTeamA && match.scoreA < match.scoreB) || (isTeamB && match.scoreB < match.scoreA);
-        
-        if (wonMatch) avg += 0.5;
-        else if (lostMatch) avg -= 0.5;
-        avg = Math.max(1, Math.min(10, avg));
-
-        if (avg > bestScore) {
+        const avg = calcPlayerMatchRating(match, p.playerId);
+        if (avg !== null && avg > bestScore) {
             bestScore = avg;
             bestPlayer = { ...p, score: avg };
         }
     });
 
     if (bestPlayer) {
-        return { player: players.find(x => x.id === bestPlayer.playerId), score: bestScore.toFixed(1) };
+        return { player: players.find(x => x.id === bestPlayer.playerId), score: bestScore.toFixed(2) };
     }
     return null;
   };
@@ -1109,26 +1119,9 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
   };
 
   const getAverageRating = (playerId) => {
-    const ratingData = getTrimmedRatingData(selectedMatch?.ratings[playerId], playerId);
-    if (ratingData.avg === null) return null;
-    
-    let avg = ratingData.avg;
-
-    if (selectedMatch?.status === 'completed') {
-      const isTeamA = selectedMatch.teamA.some(p => p.playerId === playerId);
-      const isTeamB = selectedMatch.teamB.some(p => p.playerId === playerId);
-      const wonMatch = (isTeamA && selectedMatch.scoreA > selectedMatch.scoreB) || 
-                       (isTeamB && selectedMatch.scoreB > selectedMatch.scoreA);
-      const lostMatch = (isTeamA && selectedMatch.scoreA < selectedMatch.scoreB) || 
-                        (isTeamB && selectedMatch.scoreB < selectedMatch.scoreA);
-      
-      if (wonMatch) avg += 0.5;
-      else if (lostMatch) avg -= 0.5;
-
-      avg = Math.max(1, Math.min(10, avg));
-    }
-
-    return avg.toFixed(1);
+    const avg = calcPlayerMatchRating(selectedMatch, playerId);
+    if (avg === null) return null;
+    return avg.toFixed(2);
   };
 
   return (
@@ -1354,7 +1347,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                    {selectedMatch.ratingsClosed && (
                      <div className="text-xs text-slate-400 mb-4 bg-slate-900/50 p-2 rounded border border-slate-800">
                        Puanlama asıl admin tarafından sonlandırılmıştır. Yeni puan girilemez. <br/>
-                       <span className="text-green-400">Kazanan takım +0.5</span>, <span className="text-red-400">Kaybeden takım -0.5</span> puan etki aldı.
+                       <span className="text-green-400 font-bold">Gol ve asistler puana +0.01 ekler.</span>
                      </div>
                    )}
 
@@ -1380,7 +1373,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                 </span>
                                 <div className="flex items-center gap-2">
                                   {/* Asıl admin ortalamayı her zaman görebilir, diğerleri sadece kapandığında */}
-                                  <span className="text-xs font-mono font-bold text-yellow-400 w-8 text-right">
+                                  <span className="text-xs font-mono font-bold text-yellow-400 w-10 text-right">
                                      {(selectedMatch.ratingsClosed || isMasterAdmin) ? (avg ? avg : '-') : '?'}
                                   </span>
                                   {canRate && (
@@ -1453,7 +1446,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                 </span>
                                 <div className="flex items-center gap-2">
                                   {/* Asıl admin ortalamayı her zaman görebilir, diğerleri sadece kapandığında */}
-                                  <span className="text-xs font-mono font-bold text-yellow-400 w-8 text-right">
+                                  <span className="text-xs font-mono font-bold text-yellow-400 w-10 text-right">
                                      {(selectedMatch.ratingsClosed || isMasterAdmin) ? (avg ? avg : '-') : '?'}
                                   </span>
                                   {canRate && (
@@ -1564,6 +1557,8 @@ const GoalForm = ({ team, match, players, onAddGoal }) => {
 // 5. İSTATİSTİKLER SEKRESİ
 // ==========================================
 function StatsTab({ players, matches }) {
+  const [selectedPlayerForStats, setSelectedPlayerForStats] = useState(null);
+
   const completedMatches = matches.filter(m => m.status === 'completed');
   const totalMatches = completedMatches.length;
   let totalGoals = 0;
@@ -1579,6 +1574,57 @@ function StatsTab({ players, matches }) {
 
   return (
     <div className="space-y-8">
+      {/* OYUNCU DETAY MODALI (Tıklanınca Açılır) */}
+      {selectedPlayerForStats && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4" onClick={() => setSelectedPlayerForStats(null)}>
+          <div className="bg-slate-900 border border-cyan-500/50 p-6 rounded-2xl max-w-sm w-full relative shadow-[0_0_30px_rgba(34,211,238,0.2)]" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setSelectedPlayerForStats(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X size={20}/></button>
+            
+            <div className="flex flex-col items-center mb-6 mt-2">
+               <div className="w-20 h-20 rounded-full border-2 border-cyan-400 overflow-hidden mb-3 shadow-[0_0_15px_rgba(34,211,238,0.4)]">
+                  {selectedPlayerForStats.avatar ? <img src={selectedPlayerForStats.avatar} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-slate-800 flex items-center justify-center text-3xl font-black text-cyan-400">{selectedPlayerForStats.number}</div>}
+               </div>
+               <h3 className="text-xl font-bold text-white">{selectedPlayerForStats.name}</h3>
+               <span className="text-xs font-mono text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded mt-1 border border-cyan-800">Forma No: #{selectedPlayerForStats.number}</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mb-6">
+               <div className="bg-slate-800 p-2 rounded text-center border border-slate-700">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Galibiyet</div><div className="text-lg font-black text-green-400">{selectedPlayerForStats.wins}</div>
+               </div>
+               <div className="bg-slate-800 p-2 rounded text-center border border-slate-700">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Beraberlik</div><div className="text-lg font-black text-yellow-400">{selectedPlayerForStats.draws}</div>
+               </div>
+               <div className="bg-slate-800 p-2 rounded text-center border border-slate-700">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Mağlubiyet</div><div className="text-lg font-black text-red-400">{selectedPlayerForStats.losses}</div>
+               </div>
+            </div>
+            
+            <div className="flex justify-between bg-slate-800 p-3 rounded-lg border border-slate-700 mb-6">
+               <div className="text-center w-1/3 border-r border-slate-700"><div className="text-xs text-slate-400">Maç</div><div className="text-xl font-bold text-white">{selectedPlayerForStats.matches}</div></div>
+               <div className="text-center w-1/3 border-r border-slate-700"><div className="text-xs text-slate-400">Gol</div><div className="text-xl font-bold text-cyan-400">{selectedPlayerForStats.goals}</div></div>
+               <div className="text-center w-1/3"><div className="text-xs text-slate-400">Asist</div><div className="text-xl font-bold text-pink-400">{selectedPlayerForStats.assists}</div></div>
+            </div>
+
+            <div>
+               <h4 className="text-sm font-bold text-slate-300 mb-2 border-b border-slate-700 pb-1 flex justify-between items-center">
+                  <span>Son 5 Maç Puanı</span>
+                  <span className="text-xs font-mono text-yellow-400">Ort: {selectedPlayerForStats.avgRating}</span>
+               </h4>
+               <div className="space-y-2">
+                  {selectedPlayerForStats.matchHistory.length === 0 ? <div className="text-xs text-slate-500 text-center py-2">Puan verisi yok.</div> : null}
+                  {selectedPlayerForStats.matchHistory.slice(-5).reverse().map((h, i) => (
+                     <div key={i} className="flex justify-between items-center bg-slate-800/50 p-2 rounded border border-slate-700/50">
+                        <span className="text-xs text-slate-400 flex items-center gap-2"><CalendarDays size={12}/> {h.date}</span>
+                        <span className="text-sm font-black text-yellow-400 flex items-center gap-1">{h.rating} <Star size={12} fill="currentColor"/></span>
+                     </div>
+                  ))}
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-blue-900 to-slate-900 p-6 rounded-2xl border border-blue-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{totalMatches}</div><div className="text-sm text-blue-300 font-semibold uppercase tracking-wider">Oynanan Maç</div></div>
         <div className="bg-gradient-to-br from-cyan-900 to-slate-900 p-6 rounded-2xl border border-cyan-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{totalGoals}</div><div className="text-sm text-cyan-300 font-semibold uppercase tracking-wider">Atılan Gol</div></div>
@@ -1591,10 +1637,10 @@ function StatsTab({ players, matches }) {
           <h3 className="text-lg font-bold text-yellow-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Goal size={20} /> Gol Krallığı</h3>
           <ul className="space-y-3">
             {topScorers.map((s, idx) => (
-              <li key={s.id} className="flex justify-between items-center bg-slate-900/50 p-2 rounded">
+              <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded cursor-pointer hover:bg-slate-700 transition-colors">
                  <div className="flex items-center gap-3">
                     <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
-                    {players.find(p=>p.id===s.id)?.avatar && <img src={players.find(p=>p.id===s.id).avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
+                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
                     <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maçta</div></div>
                  </div>
                  <div className="text-xl font-black text-yellow-400">{s.goals}</div>
@@ -1608,10 +1654,10 @@ function StatsTab({ players, matches }) {
           <h3 className="text-lg font-bold text-cyan-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Users size={20} /> Asist Krallığı</h3>
           <ul className="space-y-3">
             {topAssists.map((s, idx) => (
-              <li key={s.id} className="flex justify-between items-center bg-slate-900/50 p-2 rounded">
+              <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded cursor-pointer hover:bg-slate-700 transition-colors">
                  <div className="flex items-center gap-3">
                     <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
-                    {players.find(p=>p.id===s.id)?.avatar && <img src={players.find(p=>p.id===s.id).avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
+                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
                     <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maçta</div></div>
                  </div>
                  <div className="text-xl font-black text-cyan-400">{s.assists}</div>
@@ -1625,10 +1671,10 @@ function StatsTab({ players, matches }) {
           <h3 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Star size={20} /> En Yüksek Puan Ortalaması</h3>
           <ul className="space-y-3">
             {topRatings.filter(r => r.avgRating > 0).map((s, idx) => (
-              <li key={s.id} className="flex justify-between items-center bg-slate-900/50 p-2 rounded border-l-2 border-blue-500">
+              <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded border-l-2 border-blue-500 cursor-pointer hover:bg-slate-700 transition-colors">
                  <div className="flex items-center gap-3">
                     <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
-                    {players.find(p=>p.id===s.id)?.avatar && <img src={players.find(p=>p.id===s.id).avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
+                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
                     <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maç oynadı</div></div>
                  </div>
                  <div className="flex flex-col items-end">
