@@ -211,6 +211,7 @@ export default function App() {
       case 'kadro': return isAdmin ? <SquadTab players={players} matches={matches} /> : null;
       case 'fikstur': return <FixturesTab matches={matches} players={players} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} />;
       case 'istatistik': return <StatsTab players={players} matches={matches} />;
+      case 'admin': return isMasterAdmin ? <AdminSettingsTab players={players} /> : null;
       default: return null;
     }
   };
@@ -236,6 +237,7 @@ export default function App() {
               {isAdmin && <NavButton active={activeTab === 'kadro'} onClick={() => setActiveTab('kadro')} icon={<LayoutTemplate size={18} />} text="Kadro Kur" /> }
               <NavButton active={activeTab === 'fikstur'} onClick={() => setActiveTab('fikstur')} icon={<CalendarDays size={18} />} text="Fikstür" />
               <NavButton active={activeTab === 'istatistik'} onClick={() => setActiveTab('istatistik')} icon={<Trophy size={18} />} text="İstatistikler" />
+              {isMasterAdmin && <NavButton active={activeTab === 'admin'} onClick={() => setActiveTab('admin')} icon={<Settings size={18} />} text="Admin Ayarları" /> }
             </nav>
 
             <div className="flex items-center gap-4">
@@ -590,6 +592,114 @@ function ProfileTab({ currentUserData, players, matches }) {
 }
 
 // ==========================================
+// YENİ: ADMIN AYARLARI SEKRESİ (SADECE ASIL ADMIN)
+// ==========================================
+function AdminSettingsTab({ players }) {
+  const [editingPlayer, setEditingPlayer] = useState(null);
+
+  const saveEdit = async () => {
+    if (!editingPlayer.firstName || !editingPlayer.number || !editingPlayer.position) return;
+    await updateDoc(doc(dbPath('players'), editingPlayer.id), editingPlayer);
+    setEditingPlayer(null);
+  };
+
+  const handleDelete = async (id) => {
+    if (window.confirm("DİKKAT: Bu kullanıcıyı tamamen silmek istediğinize emin misiniz?")) {
+      await deleteDoc(doc(dbPath('players'), id));
+    }
+  };
+
+  // Rol ağırlıklarına göre sıralama (Master -> Admin -> User) sonra Alfabetik
+  const sortedPlayers = [...players].sort((a, b) => {
+      const roleWeight = { master_admin: 1, admin: 2, user: 3 };
+      if (roleWeight[a.role] !== roleWeight[b.role]) return roleWeight[a.role] - roleWeight[b.role];
+      return a.firstName.localeCompare(b.firstName);
+  });
+
+  return (
+    <div className="space-y-6">
+      <div className={`${THEME.panel} p-6 rounded-xl border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.15)]`}>
+        <h2 className="text-xl font-bold mb-6 flex items-center gap-2 border-b border-red-900/50 pb-3 text-red-400">
+          <Settings size={24} /> Tam Yetkili Asıl Admin Paneli
+        </h2>
+        <p className="text-sm text-slate-400 mb-6">Burada sistemdeki tüm kullanıcıların (onaylı/onaysız) gizli bilgilerini görebilir ve düzenleyebilirsiniz. Şifreler dahil tüm yetkiler elinizdedir.</p>
+        
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm whitespace-nowrap">
+            <thead className="bg-slate-900 text-slate-400">
+              <tr>
+                <th className="p-3 rounded-tl-lg w-12 text-center">No</th>
+                <th className="p-3">Kullanıcı Bilgisi</th>
+                <th className="p-3">Pozisyon & İletişim</th>
+                <th className="p-3 text-orange-400">Gizli Şifre</th>
+                <th className="p-3">Rol / Durum</th>
+                <th className="p-3 rounded-tr-lg text-center">İşlem</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedPlayers.map(p => {
+                  if (editingPlayer?.id === p.id) {
+                      return (
+                         <tr key={`edit-${p.id}`} className="border-b border-slate-700 bg-slate-800">
+                            <td colSpan={6} className="p-4">
+                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-4">
+                                    <div><label className="text-[10px] text-slate-400">Ad</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.firstName} onChange={e=>setEditingPlayer({...editingPlayer, firstName: e.target.value})} /></div>
+                                    <div><label className="text-[10px] text-slate-400">Soyad</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.lastName} onChange={e=>setEditingPlayer({...editingPlayer, lastName: e.target.value})} /></div>
+                                    <div><label className="text-[10px] text-slate-400">Kullanıcı Adı</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.username || ''} onChange={e=>setEditingPlayer({...editingPlayer, username: e.target.value})} /></div>
+                                    <div><label className="text-[10px] text-slate-400">Şifre</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.password} onChange={e=>setEditingPlayer({...editingPlayer, password: e.target.value})} /></div>
+                                    <div><label className="text-[10px] text-slate-400">Forma No</label><input type="number" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.number} onChange={e=>setEditingPlayer({...editingPlayer, number: e.target.value})} /></div>
+                                    <div><label className="text-[10px] text-slate-400">Pozisyon</label><select className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.position} onChange={e=>setEditingPlayer({...editingPlayer, position: e.target.value})}><option>Kaleci</option><option>Defans</option><option>Orta Saha</option><option>Forvet</option></select></div>
+                                    <div><label className="text-[10px] text-slate-400">Telefon</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.phone || ''} onChange={e=>setEditingPlayer({...editingPlayer, phone: e.target.value})} /></div>
+                                    <div><label className="text-[10px] text-slate-400">Grup</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.group || ''} onChange={e=>setEditingPlayer({...editingPlayer, group: e.target.value})} /></div>
+                                    <div><label className="text-[10px] text-slate-400">Rol</label><select className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.role} onChange={e=>setEditingPlayer({...editingPlayer, role: e.target.value})}><option value="user">User</option><option value="admin">Admin</option><option value="master_admin">Master Admin</option></select></div>
+                                    <div><label className="text-[10px] text-slate-400">Durum</label><select className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.status} onChange={e=>setEditingPlayer({...editingPlayer, status: e.target.value})}><option value="approved">Approved</option><option value="pending">Pending</option></select></div>
+                                </div>
+                                <div className="flex gap-2 justify-end">
+                                    <button onClick={() => setEditingPlayer(null)} className="text-slate-400 hover:text-white font-bold text-xs bg-slate-700 px-4 py-2 rounded">İptal</button>
+                                    <button onClick={saveEdit} className="text-green-400 hover:text-green-300 font-bold text-xs bg-green-900/40 px-4 py-2 rounded border border-green-700 flex items-center gap-1"><Check size={14}/> Kaydet</button>
+                                </div>
+                            </td>
+                         </tr>
+                      );
+                  }
+
+                  return (
+                      <tr key={p.id} className="border-b border-slate-700 hover:bg-slate-800 transition-colors">
+                        <td className="p-3 text-cyan-400 font-bold text-center text-lg">{p.number || '-'}</td>
+                        <td className="p-3">
+                            <div className="font-bold text-white flex items-center gap-2">
+                              {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600" />}
+                              {p.firstName} {p.lastName}
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-1">ID: <span className="text-cyan-500">{p.id}</span> {p.username && <span className="ml-1 text-blue-300">@{p.username}</span>}</div>
+                        </td>
+                        <td className="p-3 text-xs">
+                            <div className={`px-2 py-0.5 rounded inline-block mb-1 ${p.position === 'Kaleci' ? 'bg-yellow-600/20 text-yellow-400' : p.position === 'Defans' ? 'bg-blue-600/20 text-blue-400' : p.position === 'Orta Saha' ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>{p.position}</div>
+                            <div className="text-slate-400">{p.phone || '-'}</div>
+                        </td>
+                        <td className="p-3 text-xs font-mono font-bold text-orange-400 bg-slate-900/50">{p.password}</td>
+                        <td className="p-3 text-xs">
+                            <div className={`px-2 py-0.5 rounded inline-block mb-1 ${p.role === 'master_admin' ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-700' : p.role === 'admin' ? 'bg-cyan-900/50 text-cyan-400 border border-cyan-700' : 'bg-slate-700 text-slate-300'}`}>{p.role}</div>
+                            <div className={`px-2 py-0.5 rounded inline-block ml-1 ${p.status === 'approved' ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>{p.status}</div>
+                        </td>
+                        <td className="p-3 text-center">
+                             <div className="flex gap-2 justify-center">
+                                 <button onClick={() => setEditingPlayer(p)} className="text-blue-400 p-1.5 bg-blue-900/20 rounded hover:bg-blue-600 hover:text-white transition-colors" title="Düzenle"><Edit size={14}/></button>
+                                 <button onClick={() => handleDelete(p.id)} className="text-red-400 p-1.5 bg-red-900/20 rounded hover:bg-red-600 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed" disabled={p.role === 'master_admin'} title="Sil"><Trash2 size={14}/></button>
+                             </div>
+                        </td>
+                      </tr>
+                  );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
 // 2. OYUNCU YÖNETİMİ SEKRESİ
 // ==========================================
 function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin }) {
@@ -632,7 +742,7 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
           {isMasterAdmin ? <ShieldCheck className="text-yellow-400" size={28} /> : <Shield className="text-cyan-400" size={28} />}
           <div>
             <h2 className="font-bold text-lg text-white">{isMasterAdmin ? 'Asıl Admin Modu Aktif' : 'Admin Modu Aktif'}</h2>
-            <p className="text-xs text-slate-400">Sistemdeki tüm yetkilere sahipsiniz ve tüm hesap ID'lerini görebilirsiniz.</p>
+            <p className="text-xs text-slate-400">İşlemlerinizi yapabilirsiniz. Şifre işlemleri için üstteki 'Admin Ayarları' sekmesini kullanın.</p>
           </div>
         </div>
       )}
@@ -739,21 +849,20 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
         <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border} ${isAdmin ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
           <h2 className="text-xl font-bold mb-6 flex items-center gap-2 border-b border-slate-700 pb-3"><Users className={THEME.accent} /> Oyuncu Havuzu ({approvedPlayers.length})</h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full text-left text-sm whitespace-nowrap">
               <thead className="bg-slate-900 text-slate-400">
                 <tr>
                   <th className="p-3 rounded-tl-lg w-12 text-center">No</th>
                   <th className="p-3">Ad Soyad</th>
                   <th className="p-3">Pozisyon</th>
                   <th className="p-3">İletişim</th>
-                  {isMasterAdmin && <th className="p-3 text-cyan-400">Şifre</th>}
                   {isAdmin && <th className="p-3 text-center">Durum / Rol</th>}
                   {isAdmin && <th className="p-3 rounded-tr-lg text-center">İşlem</th>}
                 </tr>
               </thead>
               <tbody>
                 {approvedPlayers.length === 0 ? (
-                  <tr><td colSpan={isMasterAdmin ? 7 : (isAdmin ? 6 : 4)} className="p-4 text-center text-slate-500">Kayıtlı onaylı oyuncu yok.</td></tr>
+                  <tr><td colSpan={isAdmin ? 6 : 4} className="p-4 text-center text-slate-500">Kayıtlı onaylı oyuncu yok.</td></tr>
                 ) : (
                   approvedPlayers.map((p) => {
                     if (isAdmin && editingPlayer?.id === p.id) {
@@ -763,7 +872,6 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
                           <td className="p-2"><div className="flex gap-1"><input type="text" placeholder="Ad" className="w-1/2 bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.firstName} onChange={e => setEditingPlayer({...editingPlayer, firstName: e.target.value})} /><input type="text" placeholder="Soyad" className="w-1/2 bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.lastName} onChange={e => setEditingPlayer({...editingPlayer, lastName: e.target.value})} /></div></td>
                           <td className="p-2 align-top"><select className="w-full bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.position} onChange={e => setEditingPlayer({...editingPlayer, position: e.target.value})}><option>Kaleci</option><option>Defans</option><option>Orta Saha</option><option>Forvet</option></select></td>
                           <td className="p-2 align-top"><input type="text" placeholder="Tel No" className="w-full bg-slate-900 border border-slate-600 rounded p-1 text-white text-xs outline-none" value={editingPlayer.phone || ''} onChange={e => setEditingPlayer({...editingPlayer, phone: e.target.value})} /></td>
-                          {isMasterAdmin && <td className="p-2 align-top"><input type="text" placeholder="Şifre" className="w-full bg-slate-900 border border-cyan-600/50 rounded p-1 text-white text-xs outline-none" value={editingPlayer.password} onChange={e => setEditingPlayer({...editingPlayer, password: e.target.value})} /></td>}
                           <td colSpan="2" className="p-2 text-center align-top"><div className="flex gap-2 justify-center mt-1"><button onClick={saveEdit} className="text-green-400 hover:text-green-300 font-bold text-xs bg-green-900/40 px-3 py-1.5 rounded border border-green-700">Kaydet</button><button onClick={() => setEditingPlayer(null)} className="text-slate-400 hover:text-slate-300 font-bold text-xs bg-slate-700/80 px-3 py-1.5 rounded border border-slate-600">İptal</button></div></td>
                         </tr>
                       );
@@ -784,7 +892,6 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
                         </td>
                         <td className="p-3"><span className={`px-2 py-1 rounded text-xs ${p.position === 'Kaleci' ? 'bg-yellow-600/20 text-yellow-400' : p.position === 'Defans' ? 'bg-blue-600/20 text-blue-400' : p.position === 'Orta Saha' ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>{p.position}</span></td>
                         <td className="p-3 text-xs text-slate-400">{p.phone || '-'}</td>
-                        {isMasterAdmin && <td className="p-3 text-xs font-mono font-bold text-cyan-400 bg-slate-900/50">{p.password}</td>}
                         {isAdmin && (<td className="p-3 text-center"><button onClick={() => togglePlayerStatus(p.id, p.isActive !== false)} disabled={p.role === 'master_admin'} className={`px-3 py-1 rounded text-xs font-bold transition-all ${p.isActive !== false ? 'bg-green-600/20 text-green-400 border border-green-500/50 hover:bg-green-600/40' : 'bg-slate-700 text-slate-400 border border-slate-600 hover:bg-slate-600'} disabled:opacity-30 disabled:cursor-not-allowed`}>{p.isActive !== false ? 'Aktif' : 'Pasif'}</button></td>)}
                         {isAdmin && (
                           <td className="p-3">
