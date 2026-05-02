@@ -38,7 +38,35 @@ const THEME = {
   pitch: 'bg-gradient-to-b from-green-800 to-green-900',
 };
 
-// Genel İstatistik Hesaplayıcı (Tüm sayfalarda ortak kullanmak için)
+// --- PUAN HESAPLAMA YARDIMCISI (Uç Değerleri Kırpar) ---
+const getTrimmedRatingData = (ratingsObj, targetPlayerId) => {
+  if (!ratingsObj) return { avg: null, excludedMinRater: null, excludedMaxRater: null };
+  
+  // Kendi kendine verilen puanları dışla
+  const entries = Object.entries(ratingsObj).filter(([raterId]) => raterId !== targetPlayerId);
+  if (entries.length === 0) return { avg: null, excludedMinRater: null, excludedMaxRater: null };
+  
+  // 3'ten az oy varsa kırpma yapma, normal ortalama al
+  if (entries.length < 3) {
+      const avg = entries.reduce((acc, [_, val]) => acc + val, 0) / entries.length;
+      return { avg, excludedMinRater: null, excludedMaxRater: null };
+  }
+
+  // Puanlara göre küçükten büyüğe sırala
+  const sortedEntries = [...entries].sort((a, b) => a[1] - b[1]);
+  
+  // En düşük ve en yüksek puanı veren raterId'leri belirle (sadece 1'er tane)
+  const excludedMinRater = sortedEntries[0][0];
+  const excludedMaxRater = sortedEntries[sortedEntries.length - 1][0];
+
+  // Baştaki (en düşük) ve Sondaki (en yüksek) elemanı çıkar
+  const remainingEntries = sortedEntries.slice(1, sortedEntries.length - 1);
+  const avg = remainingEntries.length > 0 ? (remainingEntries.reduce((acc, [_, val]) => acc + val, 0) / remainingEntries.length) : null;
+
+  return { avg, excludedMinRater, excludedMaxRater };
+};
+
+// Genel İstatistik Hesaplayıcı
 const getPlayerStatsMap = (players, matches) => {
   const completedMatches = matches.filter(m => m.status === 'completed');
   const statsMap = {};
@@ -54,14 +82,9 @@ const getPlayerStatsMap = (players, matches) => {
       if(statsMap[pObj.playerId]) {
         statsMap[pObj.playerId].matches += 1;
         if (m.ratingsClosed) {
-          const playerRatings = m.ratings[pObj.playerId];
-          if (playerRatings) {
-            const validVals = Object.entries(playerRatings)
-              .filter(([raterId]) => raterId !== pObj.playerId)
-              .map(([_, val]) => val);
-              
-            if (validVals.length > 0) {
-              let matchAvg = validVals.reduce((a, b) => a + b, 0) / validVals.length;
+          const ratingData = getTrimmedRatingData(m.ratings[pObj.playerId], pObj.playerId);
+          if (ratingData.avg !== null) {
+              let matchAvg = ratingData.avg;
               
               const isTeamA = m.teamA.some(p => p.playerId === pObj.playerId);
               const isTeamB = m.teamB.some(p => p.playerId === pObj.playerId);
@@ -75,7 +98,6 @@ const getPlayerStatsMap = (players, matches) => {
 
               statsMap[pObj.playerId].ratingSum += matchAvg;
               statsMap[pObj.playerId].ratingCount += 1;
-            }
           }
         }
       }
@@ -728,6 +750,7 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
                         <td className="p-3 font-mono text-cyan-400 text-center font-bold text-lg">{p.number || '-'}</td>
                         <td className="p-3">
                            <div className="font-semibold text-white flex items-center gap-2">
+                             {/* Mini Avatar in table */}
                              {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600" />}
                              {p.firstName} {p.lastName} {p.role === 'master_admin' && <ShieldCheck size={14} className="text-yellow-400" title="Asıl Admin" />} {p.role === 'admin' && <Shield size={14} className="text-cyan-400" title="Admin" />}
                            </div>
@@ -950,13 +973,10 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
 
     const allPlayers = [...match.teamA, ...match.teamB];
     allPlayers.forEach(p => {
-        const pRatings = match.ratings[p.playerId];
-        if (!pRatings) return;
-        
-        const validVals = Object.entries(pRatings).filter(([rId]) => rId !== p.playerId).map(([_, val]) => val);
-        if (validVals.length === 0) return;
+        const ratingData = getTrimmedRatingData(match.ratings[p.playerId], p.playerId);
+        if (ratingData.avg === null) return;
 
-        let avg = validVals.reduce((a, b) => a + b, 0) / validVals.length;
+        let avg = ratingData.avg;
 
         const isTeamA = match.teamA.some(x => x.playerId === p.playerId);
         const isTeamB = match.teamB.some(x => x.playerId === p.playerId);
@@ -1089,13 +1109,10 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
   };
 
   const getAverageRating = (playerId) => {
-    const pRatings = selectedMatch?.ratings[playerId];
-    if (!pRatings) return null;
+    const ratingData = getTrimmedRatingData(selectedMatch?.ratings[playerId], playerId);
+    if (ratingData.avg === null) return null;
     
-    const validVals = Object.entries(pRatings).filter(([rId]) => rId !== playerId).map(([_, val]) => val);
-      
-    if (validVals.length === 0) return null;
-    let avg = validVals.reduce((a, b) => a + b, 0) / validVals.length;
+    let avg = ratingData.avg;
 
     if (selectedMatch?.status === 'completed') {
       const isTeamA = selectedMatch.teamA.some(p => p.playerId === playerId);
