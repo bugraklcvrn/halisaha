@@ -1350,7 +1350,8 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                           const myRating = selectedMatch.ratings[p.playerId]?.[currentUserData.id] || '';
                           const canRate = canRatePlayer(p.playerId);
                           
-                          const allValidRatings = Object.entries(selectedMatch.ratings[p.playerId] || {}).filter(([rId]) => rId !== p.playerId);
+                          const ratingData = getTrimmedRatingData(selectedMatch.ratings[p.playerId], p.playerId);
+                          const allMatchPlayers = [...selectedMatch.teamA, ...selectedMatch.teamB];
                           const playerInfo = players.find(x => x.id === p.playerId);
 
                           return (
@@ -1373,16 +1374,40 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                 </div>
                               </div>
                               {/* ASIL ADMIN İÇİN DETAYLI PUAN GÖSTERİMİ VE DÜZENLEME */}
-                              {isMasterAdmin && allValidRatings.length > 0 && (
+                              {isMasterAdmin && (
                                 <div className="text-[10px] text-slate-500 mt-2 border-t border-slate-700/50 pt-2 space-y-1">
-                                  <div className="font-bold text-slate-400 mb-1 flex justify-between"><span>Verilen Puanlar:</span> <span className="text-[8px] text-cyan-500">Değiştirebilirsin</span></div>
-                                  {allValidRatings.map(([raterId, score]) => (
-                                    <div key={raterId} className="flex justify-between items-center bg-slate-950 p-1 rounded border border-slate-800">
-                                       <span className="truncate flex-1 pl-1">{getPlayerName(raterId)}</span>
-                                       <input type="number" min="1" max="10" className="w-10 bg-slate-800 text-yellow-400 font-bold border border-slate-600 rounded text-center outline-none focus:border-cyan-400" 
-                                              value={score} onChange={(e) => handleForceRatingChange(p.playerId, raterId, e.target.value)} />
+                                  <div className="font-bold text-slate-400 mb-1 flex justify-between"><span>Tüm Oylamalar:</span> <span className="text-[8px] text-cyan-500">Değiştirebilirsin</span></div>
+                                  <div className="max-h-40 overflow-y-auto pr-1 space-y-1">
+                                    {allMatchPlayers.filter(mp => mp.playerId !== p.playerId).map(mp => {
+                                      const raterId = mp.playerId;
+                                      const score = selectedMatch.ratings[p.playerId]?.[raterId] || '';
+                                      const isExcludedMin = raterId === ratingData.excludedMinRater;
+                                      const isExcludedMax = raterId === ratingData.excludedMaxRater;
+                                      
+                                      let textColor = "text-yellow-400";
+                                      if (score !== '') {
+                                          if (isExcludedMax) textColor = "text-green-400";
+                                          else if (isExcludedMin) textColor = "text-red-400";
+                                      }
+
+                                      return (
+                                        <div key={raterId} className="flex justify-between items-center bg-slate-950 p-1 rounded border border-slate-800">
+                                           <span className={`truncate flex-1 pl-1 ${score === '' ? 'text-slate-600' : 'text-slate-300'}`}>{getPlayerName(raterId)}</span>
+                                           <input type="number" min="1" max="10" 
+                                                  className={`w-10 bg-slate-800 font-bold border border-slate-600 rounded text-center outline-none focus:border-cyan-400 ${textColor}`} 
+                                                  value={score} 
+                                                  onChange={(e) => handleForceRatingChange(p.playerId, raterId, e.target.value)} 
+                                                  placeholder="-" />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  {(ratingData.excludedMaxRater || ratingData.excludedMinRater) && (
+                                    <div className="text-[8px] text-slate-500 flex justify-between px-1 mt-1">
+                                       <span className="text-green-400">Yeşil: En Yüksek (İptal)</span>
+                                       <span className="text-red-400">Kırmızı: En Düşük (İptal)</span>
                                     </div>
-                                  ))}
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1398,7 +1423,8 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                            const myRating = selectedMatch.ratings[p.playerId]?.[currentUserData.id] || '';
                            const canRate = canRatePlayer(p.playerId);
                            
-                           const allValidRatings = Object.entries(selectedMatch.ratings[p.playerId] || {}).filter(([rId]) => rId !== p.playerId);
+                           const ratingData = getTrimmedRatingData(selectedMatch.ratings[p.playerId], p.playerId);
+                           const allMatchPlayers = [...selectedMatch.teamA, ...selectedMatch.teamB];
                            const playerInfo = players.find(x => x.id === p.playerId);
 
                            return (
@@ -1421,16 +1447,40 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                 </div>
                               </div>
                               {/* ASIL ADMIN İÇİN DETAYLI PUAN GÖSTERİMİ VE DÜZENLEME */}
-                              {isMasterAdmin && allValidRatings.length > 0 && (
+                              {isMasterAdmin && (
                                 <div className="text-[10px] text-slate-500 mt-2 border-t border-slate-700/50 pt-2 space-y-1">
-                                  <div className="font-bold text-slate-400 mb-1 flex justify-between"><span>Verilen Puanlar:</span> <span className="text-[8px] text-cyan-500">Değiştirebilirsin</span></div>
-                                  {allValidRatings.map(([raterId, score]) => (
-                                    <div key={raterId} className="flex justify-between items-center bg-slate-950 p-1 rounded border border-slate-800">
-                                       <span className="truncate flex-1 pl-1">{getPlayerName(raterId)}</span>
-                                       <input type="number" min="1" max="10" className="w-10 bg-slate-800 text-yellow-400 font-bold border border-slate-600 rounded text-center outline-none focus:border-cyan-400" 
-                                              value={score} onChange={(e) => handleForceRatingChange(p.playerId, raterId, e.target.value)} />
+                                  <div className="font-bold text-slate-400 mb-1 flex justify-between"><span>Tüm Oylamalar:</span> <span className="text-[8px] text-cyan-500">Değiştirebilirsin</span></div>
+                                  <div className="max-h-40 overflow-y-auto pr-1 space-y-1">
+                                    {allMatchPlayers.filter(mp => mp.playerId !== p.playerId).map(mp => {
+                                      const raterId = mp.playerId;
+                                      const score = selectedMatch.ratings[p.playerId]?.[raterId] || '';
+                                      const isExcludedMin = raterId === ratingData.excludedMinRater;
+                                      const isExcludedMax = raterId === ratingData.excludedMaxRater;
+                                      
+                                      let textColor = "text-yellow-400";
+                                      if (score !== '') {
+                                          if (isExcludedMax) textColor = "text-green-400";
+                                          else if (isExcludedMin) textColor = "text-red-400";
+                                      }
+
+                                      return (
+                                        <div key={raterId} className="flex justify-between items-center bg-slate-950 p-1 rounded border border-slate-800">
+                                           <span className={`truncate flex-1 pl-1 ${score === '' ? 'text-slate-600' : 'text-slate-300'}`}>{getPlayerName(raterId)}</span>
+                                           <input type="number" min="1" max="10" 
+                                                  className={`w-10 bg-slate-800 font-bold border border-slate-600 rounded text-center outline-none focus:border-cyan-400 ${textColor}`} 
+                                                  value={score} 
+                                                  onChange={(e) => handleForceRatingChange(p.playerId, raterId, e.target.value)} 
+                                                  placeholder="-" />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  {(ratingData.excludedMaxRater || ratingData.excludedMinRater) && (
+                                    <div className="text-[8px] text-slate-500 flex justify-between px-1 mt-1">
+                                       <span className="text-green-400">Yeşil: En Yüksek (İptal)</span>
+                                       <span className="text-red-400">Kırmızı: En Düşük (İptal)</span>
                                     </div>
-                                  ))}
+                                  )}
                                 </div>
                               )}
                             </div>
