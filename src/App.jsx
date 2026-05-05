@@ -38,15 +38,36 @@ const THEME = {
   pitch: 'bg-gradient-to-b from-green-800 to-green-900',
 };
 
-// --- PUAN HESAPLAMA YARDIMCISI (Uç Değerleri Kırpar) ---
-const getTrimmedRatingData = (ratingsObj, targetPlayerId) => {
+// --- YENİ KURAL: BOL KESEDEN PUAN VERENLERİ TESPİT ET (Ortalama > 9) ---
+const getBannedRaters = (ratingsObj) => {
+  if (!ratingsObj) return [];
+  const raterStats = {};
+  
+  // Kim kime kaç puan vermiş hesapla
+  Object.entries(ratingsObj).forEach(([targetId, targetRatings]) => {
+    Object.entries(targetRatings).forEach(([raterId, score]) => {
+      if (targetId === raterId) return; // Kendi oyu hariç
+      if (!raterStats[raterId]) raterStats[raterId] = { sum: 0, count: 0 };
+      raterStats[raterId].sum += score;
+      raterStats[raterId].count += 1;
+    });
+  });
+
+  // Ortalaması 9'dan büyük olanları listeye al
+  return Object.entries(raterStats)
+    .filter(([_, stats]) => stats.count > 0 && (stats.sum / stats.count) > 9)
+    .map(([raterId]) => raterId);
+};
+
+// --- PUAN HESAPLAMA YARDIMCISI (Uç Değerleri Kırpar ve Banlıları Gizler) ---
+const getTrimmedRatingData = (ratingsObj, targetPlayerId, bannedRaters = []) => {
   if (!ratingsObj) return { avg: null, excludedMinRater: null, excludedMaxRater: null };
   
-  // Kendi kendine verilen puanları dışla
-  const entries = Object.entries(ratingsObj).filter(([raterId]) => raterId !== targetPlayerId);
+  // Kendi kendine verilen puanları ve Banlı (Mavi) rater'ları dışla
+  const entries = Object.entries(ratingsObj).filter(([raterId]) => raterId !== targetPlayerId && !bannedRaters.includes(raterId));
   if (entries.length === 0) return { avg: null, excludedMinRater: null, excludedMaxRater: null };
   
-  // 3'ten az oy varsa kırpma yapma, normal ortalama al
+  // 3'ten az geçerli oy varsa kırpma yapma, normal ortalama al
   if (entries.length < 3) {
       const avg = entries.reduce((acc, [_, val]) => acc + val, 0) / entries.length;
       return { avg, excludedMinRater: null, excludedMaxRater: null };
@@ -67,8 +88,8 @@ const getTrimmedRatingData = (ratingsObj, targetPlayerId) => {
 };
 
 // --- BİREYSEL MAÇ PUANI HESAPLAYICI (+0.01 Gol/Asist Etkisi) ---
-const calcPlayerMatchRating = (match, playerId) => {
-  const ratingData = getTrimmedRatingData(match.ratings?.[playerId], playerId);
+const calcPlayerMatchRating = (match, playerId, bannedRaters = []) => {
+  const ratingData = getTrimmedRatingData(match.ratings?.[playerId], playerId, bannedRaters);
   if (ratingData.avg === null) return null;
 
   let avg = ratingData.avg;
@@ -84,7 +105,6 @@ const calcPlayerMatchRating = (match, playerId) => {
 
 // Genel İstatistik Hesaplayıcı
 const getPlayerStatsMap = (players, matches) => {
-  // Maçları tarihe göre eskiden yeniye sırala (Son 5 maç geçmişi için önemli)
   const completedMatches = [...matches].filter(m => m.status === 'completed').sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`));
   const statsMap = {};
   
@@ -98,6 +118,7 @@ const getPlayerStatsMap = (players, matches) => {
 
   completedMatches.forEach(m => {
     const allPlayersInMatch = [...m.teamA, ...m.teamB, ...m.subs.map(id => ({playerId: id}))];
+    const bannedRaters = getBannedRaters(m.ratings);
     
     allPlayersInMatch.forEach(pObj => {
       const stat = statsMap[pObj.playerId];
@@ -118,7 +139,7 @@ const getPlayerStatsMap = (players, matches) => {
 
         // Puan hesaplaması (Kapanmışsa)
         if (m.ratingsClosed) {
-          const finalRating = calcPlayerMatchRating(m, pObj.playerId);
+          const finalRating = calcPlayerMatchRating(m, pObj.playerId, bannedRaters);
           if (finalRating !== null) {
               stat.ratingSum += finalRating;
               stat.ratingCount += 1;
@@ -1102,8 +1123,10 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     let bestScore = -1;
 
     const allPlayers = [...match.teamA, ...match.teamB];
+    const bannedRaters = getBannedRaters(match.ratings);
+
     allPlayers.forEach(p => {
-        const avg = calcPlayerMatchRating(match, p.playerId);
+        const avg = calcPlayerMatchRating(match, p.playerId, bannedRaters);
         if (avg !== null && avg > bestScore) {
             bestScore = avg;
             bestPlayer = { ...p, score: avg };
@@ -1225,8 +1248,10 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     return true;
   };
 
+  const bannedRatersForCurrentMatch = selectedMatch ? getBannedRaters(selectedMatch.ratings) : [];
+
   const getAverageRating = (playerId) => {
-    const avg = calcPlayerMatchRating(selectedMatch, playerId);
+    const avg = calcPlayerMatchRating(selectedMatch, playerId, bannedRatersForCurrentMatch);
     if (avg === null) return null;
     return avg.toFixed(2);
   };
@@ -1467,7 +1492,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                           const myRating = selectedMatch.ratings[p.playerId]?.[currentUserData.id] || '';
                           const canRate = canRatePlayer(p.playerId);
                           
-                          const ratingData = getTrimmedRatingData(selectedMatch.ratings[p.playerId], p.playerId);
+                          const ratingData = getTrimmedRatingData(selectedMatch.ratings[p.playerId], p.playerId, bannedRatersForCurrentMatch);
                           const allMatchPlayers = [...selectedMatch.teamA, ...selectedMatch.teamB];
                           const playerInfo = players.find(x => x.id === p.playerId);
 
@@ -1498,12 +1523,15 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                     {allMatchPlayers.filter(mp => mp.playerId !== p.playerId).map(mp => {
                                       const raterId = mp.playerId;
                                       const score = selectedMatch.ratings[p.playerId]?.[raterId] || '';
+                                      
+                                      const isBanned = bannedRatersForCurrentMatch.includes(raterId);
                                       const isExcludedMin = raterId === ratingData.excludedMinRater;
                                       const isExcludedMax = raterId === ratingData.excludedMaxRater;
                                       
                                       let textColor = "text-yellow-400";
                                       if (score !== '') {
-                                          if (isExcludedMax) textColor = "text-green-400";
+                                          if (isBanned) textColor = "text-blue-400"; // Mavi Kuralı
+                                          else if (isExcludedMax) textColor = "text-green-400";
                                           else if (isExcludedMin) textColor = "text-red-400";
                                       }
 
@@ -1519,10 +1547,11 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                       );
                                     })}
                                   </div>
-                                  {(ratingData.excludedMaxRater || ratingData.excludedMinRater) && (
-                                    <div className="text-[8px] text-slate-500 flex justify-between px-1 mt-1">
+                                  {(ratingData.excludedMaxRater || ratingData.excludedMinRater || bannedRatersForCurrentMatch.length > 0) && (
+                                    <div className="text-[8px] text-slate-500 flex flex-col px-1 mt-1">
                                        <span className="text-green-400">Yeşil: En Yüksek (İptal)</span>
                                        <span className="text-red-400">Kırmızı: En Düşük (İptal)</span>
+                                       <span className="text-blue-400">Mavi: Ortalaması 9'u Geçen (İptal)</span>
                                     </div>
                                   )}
                                 </div>
@@ -1540,7 +1569,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                            const myRating = selectedMatch.ratings[p.playerId]?.[currentUserData.id] || '';
                            const canRate = canRatePlayer(p.playerId);
                            
-                           const ratingData = getTrimmedRatingData(selectedMatch.ratings[p.playerId], p.playerId);
+                           const ratingData = getTrimmedRatingData(selectedMatch.ratings[p.playerId], p.playerId, bannedRatersForCurrentMatch);
                            const allMatchPlayers = [...selectedMatch.teamA, ...selectedMatch.teamB];
                            const playerInfo = players.find(x => x.id === p.playerId);
 
@@ -1571,12 +1600,15 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                     {allMatchPlayers.filter(mp => mp.playerId !== p.playerId).map(mp => {
                                       const raterId = mp.playerId;
                                       const score = selectedMatch.ratings[p.playerId]?.[raterId] || '';
+                                      
+                                      const isBanned = bannedRatersForCurrentMatch.includes(raterId);
                                       const isExcludedMin = raterId === ratingData.excludedMinRater;
                                       const isExcludedMax = raterId === ratingData.excludedMaxRater;
                                       
                                       let textColor = "text-yellow-400";
                                       if (score !== '') {
-                                          if (isExcludedMax) textColor = "text-green-400";
+                                          if (isBanned) textColor = "text-blue-400";
+                                          else if (isExcludedMax) textColor = "text-green-400";
                                           else if (isExcludedMin) textColor = "text-red-400";
                                       }
 
@@ -1592,10 +1624,11 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                       );
                                     })}
                                   </div>
-                                  {(ratingData.excludedMaxRater || ratingData.excludedMinRater) && (
-                                    <div className="text-[8px] text-slate-500 flex justify-between px-1 mt-1">
+                                  {(ratingData.excludedMaxRater || ratingData.excludedMinRater || bannedRatersForCurrentMatch.length > 0) && (
+                                    <div className="text-[8px] text-slate-500 flex flex-col px-1 mt-1">
                                        <span className="text-green-400">Yeşil: En Yüksek (İptal)</span>
                                        <span className="text-red-400">Kırmızı: En Düşük (İptal)</span>
+                                       <span className="text-blue-400">Mavi: Ortalaması 9'u Geçen (İptal)</span>
                                     </div>
                                   )}
                                 </div>
