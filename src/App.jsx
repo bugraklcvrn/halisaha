@@ -193,6 +193,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('profilim');
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [enlargedImage, setEnlargedImage] = useState(null); // GÖRSEL BÜYÜTME STATE'İ
   
   const [appUserId, setAppUserId] = useState(localStorage.getItem('halisaha_userId') || null);
   
@@ -251,24 +252,37 @@ export default function App() {
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'profilim': return <ProfileTab currentUserData={currentUserData} players={players} matches={matches} />;
-      case 'oyuncular': return <PlayersTab players={players} matches={matches} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} />;
-      case 'kadro': return isAdmin ? <SquadTab players={players} matches={matches} /> : null;
-      case 'fikstur': return <FixturesTab matches={matches} players={players} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} />;
-      case 'istatistik': return <StatsTab players={players} matches={matches} />;
-      case 'admin': return isMasterAdmin ? <AdminSettingsTab players={players} matches={matches} currentUserData={currentUserData} /> : null;
+      case 'profilim': return <ProfileTab currentUserData={currentUserData} players={players} matches={matches} setEnlargedImage={setEnlargedImage} />;
+      case 'oyuncular': return <PlayersTab players={players} matches={matches} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} setEnlargedImage={setEnlargedImage} />;
+      case 'kadro': return isAdmin ? <SquadTab players={players} matches={matches} setEnlargedImage={setEnlargedImage} /> : null;
+      case 'fikstur': return <FixturesTab matches={matches} players={players} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} setEnlargedImage={setEnlargedImage} />;
+      case 'istatistik': return <StatsTab players={players} matches={matches} setEnlargedImage={setEnlargedImage} />;
+      case 'admin': return isMasterAdmin ? <AdminSettingsTab players={players} matches={matches} currentUserData={currentUserData} setEnlargedImage={setEnlargedImage} /> : null;
       default: return null;
     }
   };
 
   return (
     <div className={`min-h-screen ${THEME.bg} ${THEME.text} font-sans`}>
+      {/* GLOBAL RESİM BÜYÜTME MODALI */}
+      {enlargedImage && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[200] p-4 cursor-pointer" onClick={() => setEnlargedImage(null)}>
+          <div className="relative max-w-3xl max-h-[90vh] w-full flex items-center justify-center">
+             <button className="absolute -top-12 right-0 text-white hover:text-red-400 p-2" onClick={() => setEnlargedImage(null)}><X size={32} /></button>
+             <img src={enlargedImage} className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-[0_0_50px_rgba(34,211,238,0.3)] cursor-default" onClick={e => e.stopPropagation()} />
+          </div>
+        </div>
+      )}
+
       <header className="bg-slate-950 border-b border-blue-900 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between py-4">
             <div className="flex items-center gap-3 mb-4 md:mb-0">
-              <div className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center border-2 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)] overflow-hidden">
-                {currentUserData.avatar ? <img src={currentUserData.avatar} className="w-full h-full object-cover" /> : <Star className="text-white w-6 h-6" fill="currentColor" />}
+              <div 
+                className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center border-2 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)] overflow-hidden cursor-pointer"
+                onClick={() => currentUserData.avatar && setEnlargedImage(currentUserData.avatar)}
+              >
+                {currentUserData.avatar ? <img src={currentUserData.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform" /> : <Star className="text-white w-6 h-6" fill="currentColor" />}
               </div>
               <div className="flex flex-col">
                 <h1 className="text-2xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-200 uppercase leading-none">Champions</h1>
@@ -499,7 +513,7 @@ function AuthScreen({ setAppUserId, players }) {
 // ==========================================
 // 1. PROFİLİM SEKRESİ
 // ==========================================
-function ProfileTab({ currentUserData, players, matches }) {
+function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
   const [pass1, setPass1] = useState('');
   const [pass2, setPass2] = useState('');
   const [usernameInput, setUsernameInput] = useState(currentUserData.username || '');
@@ -587,8 +601,11 @@ function ProfileTab({ currentUserData, players, matches }) {
       {msg && <div className={`p-4 rounded-lg font-bold border shadow-lg transition-all text-center ${msg.type === 'error' ? 'bg-red-900/50 text-red-400 border-red-500' : 'bg-green-900/50 text-green-400 border-green-500'}`}>{msg.text}</div>}
       
       <div className="bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-700 p-6 rounded-xl flex flex-col md:flex-row items-center gap-6 shadow-lg">
-        <div className="w-20 h-20 rounded-full bg-blue-900/50 flex items-center justify-center border-2 border-cyan-500 overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.5)] shrink-0">
-           {currentUserData.avatar ? <img src={currentUserData.avatar} alt="profil" className="w-full h-full object-cover" /> : <span className="text-3xl font-black text-cyan-400">{currentUserData.number}</span>}
+        <div 
+           className="w-20 h-20 rounded-full bg-blue-900/50 flex items-center justify-center border-2 border-cyan-500 overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.5)] shrink-0 cursor-pointer"
+           onClick={() => currentUserData.avatar && setEnlargedImage(currentUserData.avatar)}
+        >
+           {currentUserData.avatar ? <img src={currentUserData.avatar} alt="profil" className="w-full h-full object-cover hover:scale-110 transition-transform" /> : <span className="text-3xl font-black text-cyan-400">{currentUserData.number}</span>}
         </div>
         <div className="flex-1 text-center md:text-left">
           <h2 className="text-2xl font-bold text-white">{currentUserData.firstName} {currentUserData.lastName} <span className="text-sm font-normal text-slate-400">({currentUserData.position})</span></h2>
@@ -637,7 +654,7 @@ function ProfileTab({ currentUserData, players, matches }) {
                     <label className="block text-xs text-slate-400">Görsel Seç / Bağlantı Yapıştır</label>
                   </div>
                   
-                  {/* Yeni Dosya Yükleme Butonu */}
+                  {/* Dosya Yükleme Butonu */}
                   <div className="flex gap-2 mb-3 items-center">
                     <label className="bg-slate-700 hover:bg-slate-600 text-slate-300 px-4 py-2 rounded text-xs cursor-pointer font-bold transition-colors flex items-center gap-2">
                        <Upload size={14}/> Galeriden Seç
@@ -690,7 +707,7 @@ function ProfileTab({ currentUserData, players, matches }) {
 // ==========================================
 // 2. OYUNCU YÖNETİMİ SEKRESİ
 // ==========================================
-function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin }) {
+function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin, setEnlargedImage }) {
   const [formData, setFormData] = useState({ firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '' });
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [editingPlayer, setEditingPlayer] = useState(null);
@@ -771,8 +788,11 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
                       if(!player) return null;
                       return (
                           <div key={p.playerId} className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-30" style={{ left: `${p.x}%`, top: `${p.y}%` }}>
-                              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 bg-blue-600 border-blue-300 overflow-hidden">
-                                 {player.avatar ? <img src={player.avatar} className="w-full h-full object-cover"/> : (player.number || player.firstName.charAt(0))}
+                              <div 
+                                className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 bg-blue-600 border-blue-300 overflow-hidden cursor-pointer"
+                                onClick={(e) => { e.stopPropagation(); player.avatar && setEnlargedImage(player.avatar); }}
+                              >
+                                 {player.avatar ? <img src={player.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform"/> : (player.number || player.firstName.charAt(0))}
                               </div>
                               <div className="bg-black/80 text-white text-[9px] sm:text-[11px] px-1.5 py-0.5 rounded mt-1 whitespace-nowrap font-semibold border border-slate-700/50">{player.firstName}</div>
                           </div>
@@ -784,8 +804,11 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
                       if(!player) return null;
                       return (
                           <div key={p.playerId} className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-30" style={{ left: `${p.x}%`, top: `${p.y}%` }}>
-                              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 bg-pink-600 border-pink-300 overflow-hidden">
-                                 {player.avatar ? <img src={player.avatar} className="w-full h-full object-cover"/> : (player.number || player.firstName.charAt(0))}
+                              <div 
+                                className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 bg-pink-600 border-pink-300 overflow-hidden cursor-pointer"
+                                onClick={(e) => { e.stopPropagation(); player.avatar && setEnlargedImage(player.avatar); }}
+                              >
+                                 {player.avatar ? <img src={player.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform"/> : (player.number || player.firstName.charAt(0))}
                               </div>
                               <div className="bg-black/80 text-white text-[9px] sm:text-[11px] px-1.5 py-0.5 rounded mt-1 whitespace-nowrap font-semibold border border-slate-700/50">{player.firstName}</div>
                           </div>
@@ -870,7 +893,7 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
                         <td className="p-3">
                            <div className="font-semibold text-white flex items-center gap-2">
                              {/* Mini Avatar in table */}
-                             {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600" />}
+                             {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(p.avatar); }} />}
                              {p.firstName} {p.lastName} {p.role === 'master_admin' && <ShieldCheck size={14} className="text-yellow-400" title="Asıl Admin" />} {p.role === 'admin' && <Shield size={14} className="text-cyan-400" title="Admin" />}
                            </div>
                            <div className="text-[10px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
@@ -910,7 +933,7 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin 
 // ==========================================
 // 3. KADRO KURMA SEKRESİ (Sadece Adminler)
 // ==========================================
-function SquadTab({ players, matches }) {
+function SquadTab({ players, matches, setEnlargedImage }) {
   const [matchData, setMatchData] = useState({ date: '', time: '', stadium: '', teamAName: 'Ev Sahibi', teamBName: 'Deplasman' });
   const [pitchPlayers, setPitchPlayers] = useState([]);
   const [substitutes, setSubstitutes] = useState([]);
@@ -985,7 +1008,7 @@ function SquadTab({ players, matches }) {
               {availablePlayers.map(p => (
                 <div key={p.id} draggable onDragStart={(e) => handleDragStart(e, p.id, 'pool')} onDoubleClick={() => handleDoubleClickPlayer(p.id)} className="bg-slate-900 p-2 rounded border border-slate-700 cursor-grab active:cursor-grabbing hover:border-cyan-400 flex flex-col sm:flex-row justify-between sm:items-center text-sm transition-colors gap-2 sm:gap-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 font-mono flex items-center gap-1 w-6">{p.avatar ? <img src={p.avatar} className="w-5 h-5 rounded-full object-cover"/> : `#${p.number}`}</span>
+                    <span className="text-xs text-slate-500 font-mono flex items-center gap-1 w-6">{p.avatar ? <img src={p.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e)=>{e.stopPropagation(); setEnlargedImage(p.avatar);}}/> : `#${p.number}`}</span>
                     <div className="flex flex-col">
                       <span>{p.firstName} {p.lastName}</span>
                       <span className="text-[10px] text-yellow-400 flex items-center gap-1 mt-0.5"><Star size={10} fill="currentColor"/> {statsMap[p.id]?.avgRating > 0 ? statsMap[p.id].avgRating : 'Puan Yok'}</span>
@@ -1010,7 +1033,7 @@ function SquadTab({ players, matches }) {
                 return (
                   <div key={p.id} draggable onDragStart={(e) => handleDragStart(e, p.id, 'subs')} className="bg-slate-700 p-2 rounded cursor-grab flex flex-col sm:flex-row justify-between sm:items-center text-sm border border-yellow-600/30 gap-2 sm:gap-0">
                     <div className="flex items-center gap-2">
-                       {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover"/>}
+                       {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e)=>{e.stopPropagation(); setEnlargedImage(p.avatar);}}/>}
                        <div className="flex flex-col">
                          <span>{p.firstName} {p.lastName}</span>
                          <span className="text-[10px] text-yellow-300 flex items-center gap-1 mt-0.5"><Star size={10} fill="currentColor"/> {statsMap[p.id]?.avgRating > 0 ? statsMap[p.id].avgRating : 'Puan Yok'}</span>
@@ -1038,8 +1061,8 @@ function SquadTab({ players, matches }) {
               <div className="absolute left-1/2 top-0 bottom-0 w-1 bg-white/80 -ml-[2px] z-10"></div>
               <div className="absolute left-1/2 top-1/2 w-32 h-32 border-4 border-white/80 rounded-full -ml-16 -mt-16 z-10"></div>
               <div className="absolute left-1/2 top-1/2 w-3 h-3 bg-white/80 rounded-full -ml-[6px] -mt-[6px] z-10"></div>
-              <div className="w-1/2 h-full relative z-20" onDragOver={e => e.preventDefault()} onDrop={e => handleDropOnPitch(e, 'A')}><div className="absolute left-0 top-1/2 -mt-24 w-32 h-48 border-4 border-l-0 border-white/80"></div><div className="absolute left-0 top-1/2 -mt-10 w-12 h-20 border-4 border-l-0 border-white/80"></div>{pitchPlayers.filter(p => p.team === 'A').map(pp => (<PitchPlayer key={pp.playerId} pp={pp} players={players} onDragStart={handleDragStart} teamColor="bg-blue-600 border-blue-300" onUpdatePosition={updatePitchPlayerPosition} onRemove={(id) => {setPitchPlayers(prev => prev.filter(p => p.playerId !== id))}} onMoveToSubs={(id) => {setPitchPlayers(prev => prev.filter(p => p.playerId !== id)); setSubstitutes(s => [...s, id])}} />))}</div>
-              <div className="w-1/2 h-full relative z-20" onDragOver={e => e.preventDefault()} onDrop={e => handleDropOnPitch(e, 'B')}><div className="absolute right-0 top-1/2 -mt-24 w-32 h-48 border-4 border-r-0 border-white/80"></div><div className="absolute right-0 top-1/2 -mt-10 w-12 h-20 border-4 border-r-0 border-white/80"></div>{pitchPlayers.filter(p => p.team === 'B').map(pp => (<PitchPlayer key={pp.playerId} pp={pp} players={players} onDragStart={handleDragStart} teamColor="bg-pink-600 border-pink-300" onUpdatePosition={updatePitchPlayerPosition} onRemove={(id) => {setPitchPlayers(prev => prev.filter(p => p.playerId !== id))}} onMoveToSubs={(id) => {setPitchPlayers(prev => prev.filter(p => p.playerId !== id)); setSubstitutes(s => [...s, id])}} />))}</div>
+              <div className="w-1/2 h-full relative z-20" onDragOver={e => e.preventDefault()} onDrop={e => handleDropOnPitch(e, 'A')}><div className="absolute left-0 top-1/2 -mt-24 w-32 h-48 border-4 border-l-0 border-white/80"></div><div className="absolute left-0 top-1/2 -mt-10 w-12 h-20 border-4 border-l-0 border-white/80"></div>{pitchPlayers.filter(p => p.team === 'A').map(pp => (<PitchPlayer key={pp.playerId} pp={pp} players={players} onDragStart={handleDragStart} teamColor="bg-blue-600 border-blue-300" onUpdatePosition={updatePitchPlayerPosition} onRemove={(id) => {setPitchPlayers(prev => prev.filter(p => p.playerId !== id))}} onMoveToSubs={(id) => {setPitchPlayers(prev => prev.filter(p => p.playerId !== id)); setSubstitutes(s => [...s, id])}} setEnlargedImage={setEnlargedImage} />))}</div>
+              <div className="w-1/2 h-full relative z-20" onDragOver={e => e.preventDefault()} onDrop={e => handleDropOnPitch(e, 'B')}><div className="absolute right-0 top-1/2 -mt-24 w-32 h-48 border-4 border-r-0 border-white/80"></div><div className="absolute right-0 top-1/2 -mt-10 w-12 h-20 border-4 border-r-0 border-white/80"></div>{pitchPlayers.filter(p => p.team === 'B').map(pp => (<PitchPlayer key={pp.playerId} pp={pp} players={players} onDragStart={handleDragStart} teamColor="bg-pink-600 border-pink-300" onUpdatePosition={updatePitchPlayerPosition} onRemove={(id) => {setPitchPlayers(prev => prev.filter(p => p.playerId !== id))}} onMoveToSubs={(id) => {setPitchPlayers(prev => prev.filter(p => p.playerId !== id)); setSubstitutes(s => [...s, id])}} setEnlargedImage={setEnlargedImage} />))}</div>
             </div>
             <div className="mt-6 flex justify-end"><button onClick={saveMatch} className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white px-8 py-3 rounded-full font-bold shadow-[0_0_20px_rgba(34,211,238,0.4)] transition-all transform hover:scale-105"><Save size={20} /> Kadroyu ve Maçı Kaydet</button></div>
           </div>
@@ -1049,15 +1072,18 @@ function SquadTab({ players, matches }) {
   );
 }
 
-const PitchPlayer = ({ pp, players, onDragStart, teamColor, onUpdatePosition, onRemove, onMoveToSubs }) => {
+const PitchPlayer = ({ pp, players, onDragStart, teamColor, onUpdatePosition, onRemove, onMoveToSubs, setEnlargedImage }) => {
   const p = players.find(player => player.id === pp.playerId);
   const handleTouchMove = (e) => { e.stopPropagation(); const touch = e.touches[0]; const pitch = e.currentTarget.closest('.pitch-container'); if (!pitch) return; const rect = pitch.getBoundingClientRect(); let x = Math.max(0, Math.min(100, ((touch.clientX - rect.left) / rect.width) * 100)); let y = Math.max(0, Math.min(100, ((touch.clientY - rect.top) / rect.height) * 100)); onUpdatePosition(pp.playerId, x, y); };
   const handleTouchEnd = (e) => { const touch = e.changedTouches[0]; const target = document.elementFromPoint(touch.clientX, touch.clientY); if (target?.closest('#trash-zone')) onRemove(pp.playerId); else if (target?.closest('#subs-zone')) onMoveToSubs(pp.playerId); };
   if(!p) return null;
   return (
     <div draggable onDragStart={(e) => onDragStart(e, pp.playerId, `pitch${pp.team}`)} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} className="absolute cursor-grab active:cursor-grabbing transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group z-30" style={{ left: `${pp.x}%`, top: `${pp.y}%`, touchAction: 'none' }}>
-      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 overflow-hidden ${teamColor}`}>
-        {p.avatar ? <img src={p.avatar} className="w-full h-full object-cover"/> : (p.number || p.firstName.charAt(0))}
+      <div 
+         className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 overflow-hidden ${teamColor} ${p.avatar ? 'cursor-pointer' : ''}`}
+         onClick={(e) => { e.stopPropagation(); if(p.avatar) setEnlargedImage(p.avatar); }}
+      >
+        {p.avatar ? <img src={p.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform"/> : (p.number || p.firstName.charAt(0))}
       </div>
       <div className="bg-black/80 border border-slate-700/50 text-white text-[10px] px-1.5 py-0.5 rounded mt-1 whitespace-nowrap opacity-80 group-hover:opacity-100 transition-opacity pointer-events-none">{p.firstName}</div>
     </div>
@@ -1068,7 +1094,7 @@ const PitchPlayer = ({ pp, players, onDragStart, teamColor, onUpdatePosition, on
 // ==========================================
 // 4. FİKSTÜR VE MAÇ YÖNETİMİ
 // ==========================================
-function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin }) {
+function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin, setEnlargedImage }) {
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [confirmEndMatchId, setConfirmEndMatchId] = useState(null);
   const [editingMatch, setEditingMatch] = useState(null);
@@ -1246,8 +1272,11 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                       <span className="text-[10px] text-yellow-400 font-bold uppercase tracking-widest flex items-center gap-1 justify-end"><Star size={10} fill="currentColor"/> Maçın Adamı</span>
                       <span className="text-sm font-bold text-white">{motm.player.firstName} {motm.player.lastName}</span>
                    </div>
-                   <div className="w-10 h-10 rounded-full border-2 border-yellow-400 bg-slate-800 overflow-hidden flex items-center justify-center shadow-[0_0_10px_rgba(250,204,21,0.5)]">
-                       {motm.player.avatar ? <img src={motm.player.avatar} className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-yellow-400">{motm.player.number}</span>}
+                   <div 
+                      className="w-10 h-10 rounded-full border-2 border-yellow-400 bg-slate-800 overflow-hidden flex items-center justify-center shadow-[0_0_10px_rgba(250,204,21,0.5)] cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); motm.player.avatar && setEnlargedImage(motm.player.avatar); }}
+                   >
+                       {motm.player.avatar ? <img src={motm.player.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform" /> : <span className="text-xs font-bold text-yellow-400">{motm.player.number}</span>}
                    </div>
                    <div className="text-xl font-black text-yellow-400">{motm.score}</div>
                 </div>
@@ -1443,7 +1472,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                             <div key={p.playerId} className="bg-slate-900/30 p-2 rounded flex flex-col justify-center">
                               <div className="flex justify-between items-center text-sm">
                                 <span className="truncate w-32 font-medium flex items-center gap-1">
-                                    {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover"/>}
+                                    {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(playerInfo.avatar); }}/>}
                                     {getPlayerName(p.playerId)}
                                 </span>
                                 <div className="flex items-center gap-2">
@@ -1475,7 +1504,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                             <div key={p.playerId} className="bg-slate-900/30 p-2 rounded flex flex-col justify-center">
                               <div className="flex justify-between items-center text-sm">
                                 <span className="truncate w-32 font-medium flex items-center gap-1">
-                                    {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover"/>}
+                                    {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(playerInfo.avatar); }}/>}
                                     {getPlayerName(p.playerId)}
                                 </span>
                                 <div className="flex items-center gap-2">
@@ -1519,173 +1548,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
             <p>Detayları görmek veya maçı yönetmek için listeden bir maç seçin.</p>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-const GoalForm = ({ team, match, players, onAddGoal }) => {
-  const [scorer, setScorer] = useState('');
-  const [assist, setAssist] = useState('');
-  const teamPlayers = match[`team${team}`].map(tp => players.find(p => p.id === tp.playerId)).filter(Boolean);
-
-  const submit = () => { if(!scorer) return; onAddGoal(scorer, assist === 'none' ? null : assist); setScorer(''); setAssist(''); };
-  const handleScorerChange = (e) => { const newScorer = e.target.value; setScorer(newScorer); if (assist === newScorer) setAssist(''); };
-
-  return (
-    <div className={`p-3 rounded border ${team === 'A' ? 'border-blue-900 bg-blue-900/10' : 'border-pink-900 bg-pink-900/10'}`}>
-      <div className={`text-xs font-bold mb-2 ${team === 'A' ? 'text-blue-400' : 'text-pink-400'}`}>{match[`team${team}Name`]}</div>
-      <select className="w-full text-sm bg-slate-800 border border-slate-600 rounded p-1 mb-2 text-white outline-none" value={scorer} onChange={handleScorerChange}>
-        <option value="">Golü Atan Seç...</option><option value="own_goal">Kendi Kalesine</option>
-        {teamPlayers.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
-      </select>
-      <select className="w-full text-sm bg-slate-800 border border-slate-600 rounded p-1 mb-2 text-white outline-none" value={assist} onChange={e => setAssist(e.target.value)} disabled={scorer === 'own_goal'}>
-        <option value="">Asist Yapan (Yoksa boş bırak)</option><option value="none">Asist Yok</option>
-        {teamPlayers.filter(p => p.id !== scorer).map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
-      </select>
-      <button onClick={submit} className="w-full bg-slate-700 hover:bg-slate-600 text-xs py-1.5 rounded text-white font-bold transition-colors">Ekle</button>
-    </div>
-  );
-};
-
-
-// ==========================================
-// 5. İSTATİSTİKLER SEKRESİ
-// ==========================================
-function StatsTab({ players, matches }) {
-  const [selectedPlayerForStats, setSelectedPlayerForStats] = useState(null);
-
-  const completedMatches = matches.filter(m => m.status === 'completed');
-  const totalMatches = completedMatches.length;
-  let totalGoals = 0;
-  
-  completedMatches.forEach(m => { totalGoals += m.scoreA + m.scoreB; });
-
-  const statsMap = getPlayerStatsMap(players, matches);
-  const statsArray = Object.values(statsMap).filter(s => s.matches > 0);
-  
-  // İlk 10 sırayı göster
-  const topScorers = [...statsArray].sort((a, b) => b.goals - a.goals).slice(0, 10);
-  const topAssists = [...statsArray].sort((a, b) => b.assists - a.assists).slice(0, 10);
-  
-  // En az oynanan maçların yarısında (yüzde 50) oynama şartı
-  const eligibleForRating = totalMatches > 0 ? statsArray.filter(s => s.matches >= totalMatches / 2) : statsArray;
-  const topRatings = [...eligibleForRating].sort((a, b) => b.avgRating - a.avgRating).slice(0, 10);
-
-  return (
-    <div className="space-y-8">
-      {/* OYUNCU DETAY MODALI (Tıklanınca Açılır) */}
-      {selectedPlayerForStats && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4" onClick={() => setSelectedPlayerForStats(null)}>
-          <div className="bg-slate-900 border border-cyan-500/50 p-6 rounded-2xl max-w-sm w-full relative shadow-[0_0_30px_rgba(34,211,238,0.2)]" onClick={e => e.stopPropagation()}>
-            <button onClick={() => setSelectedPlayerForStats(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X size={20}/></button>
-            
-            <div className="flex flex-col items-center mb-6 mt-2">
-               <div className="w-20 h-20 rounded-full border-2 border-cyan-400 overflow-hidden mb-3 shadow-[0_0_15px_rgba(34,211,238,0.4)]">
-                  {selectedPlayerForStats.avatar ? <img src={selectedPlayerForStats.avatar} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-slate-800 flex items-center justify-center text-3xl font-black text-cyan-400">{selectedPlayerForStats.number}</div>}
-               </div>
-               <h3 className="text-xl font-bold text-white">{selectedPlayerForStats.name}</h3>
-               <span className="text-xs font-mono text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded mt-1 border border-cyan-800">Forma No: #{selectedPlayerForStats.number}</span>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 mb-6">
-               <div className="bg-slate-800 p-2 rounded text-center border border-slate-700">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Galibiyet</div><div className="text-lg font-black text-green-400">{selectedPlayerForStats.wins}</div>
-               </div>
-               <div className="bg-slate-800 p-2 rounded text-center border border-slate-700">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Beraberlik</div><div className="text-lg font-black text-yellow-400">{selectedPlayerForStats.draws}</div>
-               </div>
-               <div className="bg-slate-800 p-2 rounded text-center border border-slate-700">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Mağlubiyet</div><div className="text-lg font-black text-red-400">{selectedPlayerForStats.losses}</div>
-               </div>
-            </div>
-            
-            <div className="flex justify-between bg-slate-800 p-3 rounded-lg border border-slate-700 mb-6">
-               <div className="text-center w-1/3 border-r border-slate-700"><div className="text-xs text-slate-400">Maç</div><div className="text-xl font-bold text-white">{selectedPlayerForStats.matches}</div></div>
-               <div className="text-center w-1/3 border-r border-slate-700"><div className="text-xs text-slate-400">Gol</div><div className="text-xl font-bold text-cyan-400">{selectedPlayerForStats.goals}</div></div>
-               <div className="text-center w-1/3"><div className="text-xs text-slate-400">Asist</div><div className="text-xl font-bold text-pink-400">{selectedPlayerForStats.assists}</div></div>
-            </div>
-
-            <div>
-               <h4 className="text-sm font-bold text-slate-300 mb-2 border-b border-slate-700 pb-1 flex justify-between items-center">
-                  <span>Son 5 Maç Puanı</span>
-                  <span className="text-xs font-mono text-yellow-400">Ort: {selectedPlayerForStats.avgRating}</span>
-               </h4>
-               <div className="space-y-2">
-                  {selectedPlayerForStats.matchHistory.length === 0 ? <div className="text-xs text-slate-500 text-center py-2">Puan verisi yok.</div> : null}
-                  {selectedPlayerForStats.matchHistory.slice(-5).reverse().map((h, i) => (
-                     <div key={i} className="flex justify-between items-center bg-slate-800/50 p-2 rounded border border-slate-700/50">
-                        <span className="text-xs text-slate-400 flex items-center gap-2"><CalendarDays size={12}/> {h.date}</span>
-                        <span className="text-sm font-black text-yellow-400 flex items-center gap-1">{h.rating} <Star size={12} fill="currentColor"/></span>
-                     </div>
-                  ))}
-               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-blue-900 to-slate-900 p-6 rounded-2xl border border-blue-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{totalMatches}</div><div className="text-sm text-blue-300 font-semibold uppercase tracking-wider">Oynanan Maç</div></div>
-        <div className="bg-gradient-to-br from-cyan-900 to-slate-900 p-6 rounded-2xl border border-cyan-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{totalGoals}</div><div className="text-sm text-cyan-300 font-semibold uppercase tracking-wider">Atılan Gol</div></div>
-        <div className="bg-gradient-to-br from-pink-900 to-slate-900 p-6 rounded-2xl border border-pink-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{totalMatches > 0 ? (totalGoals/totalMatches).toFixed(1) : 0}</div><div className="text-sm text-pink-300 font-semibold uppercase tracking-wider">Maç Başı Gol</div></div>
-        <div className="bg-gradient-to-br from-purple-900 to-slate-900 p-6 rounded-2xl border border-purple-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{players.filter(p=>p.status==='approved').length}</div><div className="text-sm text-purple-300 font-semibold uppercase tracking-wider">Onaylı Oyuncu</div></div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div className={`${THEME.panel} p-6 rounded-xl border border-yellow-500/30`}>
-          <h3 className="text-lg font-bold text-yellow-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Goal size={20} /> Gol Krallığı</h3>
-          <ul className="space-y-3">
-            {topScorers.map((s, idx) => (
-              <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded cursor-pointer hover:bg-slate-700 transition-colors">
-                 <div className="flex items-center gap-3">
-                    <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
-                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
-                    <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maçta</div></div>
-                 </div>
-                 <div className="text-xl font-black text-yellow-400">{s.goals}</div>
-              </li>
-            ))}
-            {topScorers.length === 0 && <p className="text-sm text-slate-500 text-center">Henüz veri yok</p>}
-          </ul>
-        </div>
-
-        <div className={`${THEME.panel} p-6 rounded-xl border border-cyan-500/30`}>
-          <h3 className="text-lg font-bold text-cyan-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Users size={20} /> Asist Krallığı</h3>
-          <ul className="space-y-3">
-            {topAssists.map((s, idx) => (
-              <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded cursor-pointer hover:bg-slate-700 transition-colors">
-                 <div className="flex items-center gap-3">
-                    <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
-                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
-                    <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maçta</div></div>
-                 </div>
-                 <div className="text-xl font-black text-cyan-400">{s.assists}</div>
-              </li>
-            ))}
-             {topAssists.length === 0 && <p className="text-sm text-slate-500 text-center">Henüz veri yok</p>}
-          </ul>
-        </div>
-
-        <div className={`${THEME.panel} p-6 rounded-xl border border-blue-500/30 lg:col-span-1 md:col-span-2`}>
-          <h3 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Star size={20} /> En Yüksek Puan Ortalaması</h3>
-          <ul className="space-y-3">
-            {topRatings.filter(r => r.avgRating > 0).map((s, idx) => (
-              <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded border-l-2 border-blue-500 cursor-pointer hover:bg-slate-700 transition-colors">
-                 <div className="flex items-center gap-3">
-                    <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
-                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
-                    <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maç oynadı</div></div>
-                 </div>
-                 <div className="flex flex-col items-end">
-                    <div className="text-lg font-black text-blue-300">{s.avgRating}</div>
-                    <div className="flex text-yellow-400">{[...Array(Math.round(s.avgRating / 2))].map((_, i) => <Star key={i} size={10} fill="currentColor" />)}</div>
-                 </div>
-              </li>
-            ))}
-             {topRatings.filter(r => r.avgRating > 0).length === 0 && <p className="text-sm text-slate-500 text-center">Henüz veri yok</p>}
-          </ul>
-        </div>
       </div>
     </div>
   );
