@@ -557,7 +557,6 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
     showMessage('success', 'Profil fotoğrafı kaldırıldı!');
   };
 
-  // Yeni: Dosyadan Resim Yükleme (Base64'e dönüştürüp sıkıştırır)
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -567,7 +566,7 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
        const img = new Image();
        img.onload = () => {
           const canvas = document.createElement('canvas');
-          const MAX_SIZE = 250; // Max boyut (veritabanını şişirmemek için)
+          const MAX_SIZE = 250; 
           let width = img.width;
           let height = img.height;
 
@@ -587,7 +586,6 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
           
-          // Sıkıştırılmış Data URL'yi al
           const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
           setAvatarInput(dataUrl);
        };
@@ -892,7 +890,6 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
                         <td className="p-3 font-mono text-cyan-400 text-center font-bold text-lg">{p.number || '-'}</td>
                         <td className="p-3">
                            <div className="font-semibold text-white flex items-center gap-2">
-                             {/* Mini Avatar in table */}
                              {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(p.avatar); }} />}
                              {p.firstName} {p.lastName} {p.role === 'master_admin' && <ShieldCheck size={14} className="text-yellow-400" title="Asıl Admin" />} {p.role === 'admin' && <Shield size={14} className="text-cyan-400" title="Admin" />}
                            </div>
@@ -941,7 +938,6 @@ function SquadTab({ players, matches, setEnlargedImage }) {
 
   const statsMap = getPlayerStatsMap(players, matches);
 
-  // Mobil için Hızlı Tıklama ile Kadroya Alma
   const moveToPitch = (playerId, team) => {
     const x = team === 'A' ? 25 + Math.random() * 10 : 65 + Math.random() * 10;
     const y = 20 + Math.random() * 60;
@@ -968,7 +964,6 @@ function SquadTab({ players, matches, setEnlargedImage }) {
   const handleDropToRemove = (e) => { e.preventDefault(); const playerId = e.dataTransfer.getData('playerId'); if (!playerId) return; removeFromSquad(playerId); };
   const updatePitchPlayerPosition = (playerId, x, y) => { setPitchPlayers(prev => prev.map(p => p.playerId === playerId ? { ...p, x, y, team: x <= 50 ? 'A' : 'B' } : p)); };
   
-  // Çift Tıklama Mantığını Koru
   const handleDoubleClickPlayer = (playerId) => { const countA = pitchPlayers.filter(p => p.team === 'A').length; const countB = pitchPlayers.filter(p => p.team === 'B').length; moveToPitch(playerId, countA <= countB ? 'A' : 'B'); };
 
   const saveMatch = async () => {
@@ -1014,7 +1009,6 @@ function SquadTab({ players, matches, setEnlargedImage }) {
                       <span className="text-[10px] text-yellow-400 flex items-center gap-1 mt-0.5"><Star size={10} fill="currentColor"/> {statsMap[p.id]?.avgRating > 0 ? statsMap[p.id].avgRating : 'Puan Yok'}</span>
                     </div>
                   </div>
-                  {/* Mobil Butonlar */}
                   <div className="flex gap-1 justify-end">
                     <button type="button" onClick={() => moveToPitch(p.id, 'A')} className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] px-2 py-1 rounded">A</button>
                     <button type="button" onClick={() => moveToPitch(p.id, 'B')} className="bg-pink-600 hover:bg-pink-500 text-white text-[10px] px-2 py-1 rounded">B</button>
@@ -1039,7 +1033,6 @@ function SquadTab({ players, matches, setEnlargedImage }) {
                          <span className="text-[10px] text-yellow-300 flex items-center gap-1 mt-0.5"><Star size={10} fill="currentColor"/> {statsMap[p.id]?.avgRating > 0 ? statsMap[p.id].avgRating : 'Puan Yok'}</span>
                        </div>
                     </div>
-                    {/* Mobil Butonlar */}
                     <div className="flex gap-1 justify-end">
                       <button type="button" onClick={() => moveToPitch(p.id, 'A')} className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] px-2 py-1 rounded">A</button>
                       <button type="button" onClick={() => moveToPitch(p.id, 'B')} className="bg-pink-600 hover:bg-pink-500 text-white text-[10px] px-2 py-1 rounded">B</button>
@@ -1109,7 +1102,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     return p ? `${p.firstName} ${p.lastName}` : 'Bilinmiyor';
   };
 
-  // --- MAÇIN ADAMI HESAPLAMA MANTIĞI ---
   const getMatchMotm = (match) => {
     if (match.status !== 'completed' || !isRatingsClosedForMatch(match)) return null;
     let bestPlayer = null;
@@ -1132,7 +1124,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     return null;
   };
 
-  // --- YETKİLİ İŞLEMLERİ ---
   const updateMatchStatus = async (matchId, status) => {
     if (!isAdmin) return;
     await updateDoc(doc(dbPath('matches'), matchId), { status });
@@ -1159,7 +1150,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     setEditingMatch(null);
   };
 
-  // --- GOL VE ASİST ---
   const handleAddGoal = async (teamScored, scorerId, assistId) => {
     if (!isAdmin) return;
     const newEvents = [...selectedMatch.events];
@@ -1198,15 +1188,13 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
 
   const ratingsAreClosed = isRatingsClosedForMatch(selectedMatch);
 
-  // --- PUANLAMA İŞLEMLERİ ---
   const handleRatingChange = async (playerId, val) => {
     if (ratingsAreClosed) return; 
-    if (playerId === currentUserData.id) return; // Kendi kendine puan veremez
+    if (playerId === currentUserData.id) return; 
 
     const newRatings = { ...selectedMatch.ratings };
     if (!newRatings[playerId]) newRatings[playerId] = {};
 
-    // Silme işlemi için boş string'e izin ver
     if (val === '') {
         delete newRatings[playerId][currentUserData.id];
     } else {
@@ -1265,7 +1253,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                 {m.status === 'completed' && <span className="bg-slate-600/50 text-slate-300 px-2 py-1 rounded">Tamamlandı</span>}
               </div>
               
-              {/* MAÇIN ADAMI GÖSTERİMİ */}
               {motm && (
                 <div className="mt-4 pt-3 border-t border-slate-700/50 flex items-center justify-center gap-3">
                    <div className="flex flex-col text-right">
@@ -1290,7 +1277,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
         {selectedMatch ? (
           <div className={`${THEME.panel} p-6 rounded-xl border border-cyan-500/30 shadow-2xl`}>
             
-            {/* Admin Maç Düzenleme / Silme Barı */}
             {isAdmin && (
               <div className="flex justify-end gap-2 mb-4 border-b border-slate-700 pb-4">
                 <button onClick={() => setEditingMatch(selectedMatch)} className="bg-blue-900/40 text-blue-400 hover:bg-blue-600 hover:text-white px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-colors">
@@ -1302,7 +1288,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
               </div>
             )}
 
-            {/* Düzenleme Formu (Aktifse) */}
             {editingMatch?.id === selectedMatch.id ? (
                <div className="bg-slate-900 p-4 rounded-lg border border-blue-500/50 mb-6 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1341,7 +1326,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
 
             {selectedMatch.status !== 'pending' && (
               <div className="space-y-8">
-                {/* Gol Ekleme (Sadece Aktif Maçta ve Sadece Admin) */}
                 {isAdmin && selectedMatch.status === 'active' && (
                   <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 shadow-inner">
                     <h3 className="font-bold text-sm mb-4 flex items-center gap-2"><Goal size={16} className="text-cyan-400"/> Gol Kaydet (Sadece Admin)</h3>
@@ -1352,7 +1336,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                   </div>
                 )}
 
-                {/* Timeline (Maç Olayları) */}
                 {selectedMatch.events.length > 0 && (
                   <div className="mt-8 mb-6">
                     <h3 className="font-bold text-sm mb-6 border-b border-slate-700 pb-2 text-center text-slate-400 uppercase tracking-widest">Maç Olayları</h3>
@@ -1361,7 +1344,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                       {selectedMatch.events.map((ev, idx) => {
                         const scoreDisplay = ev.scoreAAtTime !== undefined ? `${ev.scoreAAtTime} - ${ev.scoreBAtTime}` : '? - ?';
                         
-                        // GOL DÜZENLEME EKRANI
                         if (editingEvent?.id === ev.id) {
                           const teamPlayers = selectedMatch[`team${ev.team}`].map(tp => players.find(p => p.id === tp.playerId)).filter(Boolean);
                           return (
@@ -1385,7 +1367,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                           );
                         }
 
-                        // NORMAL GOL GÖSTERİMİ
                         return (
                           <div key={ev.id} className="w-full flex items-center justify-between mb-4 relative z-10 group hover:scale-105 transition-transform duration-200">
                             <div className={`w-1/2 pr-6 text-right ${ev.team === 'A' ? 'opacity-100' : 'opacity-0'}`}>
@@ -1436,7 +1417,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                   </div>
                 )}
 
-                {/* Oyuncu Puanlama Alanı */}
                 <div>
                    <div className="flex justify-between items-center mb-3 border-b border-slate-700 pb-2">
                      <h3 className="font-bold text-sm text-slate-300 flex items-center gap-2">
@@ -1459,7 +1439,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                    )}
 
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Takım A */}
                       <div className="space-y-3 border-r border-slate-700 pr-4">
                         <div className="text-blue-400 font-bold text-sm mb-2">{selectedMatch.teamAName}</div>
                         {selectedMatch.teamA.map(p => {
@@ -1477,7 +1456,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                 </span>
                                 <div className="flex items-center gap-2">
                                   <span className="text-xs font-mono font-bold text-yellow-400 w-10 text-right">
-                                     {ratingsAreClosed ? (avg ? avg : '-') : '?'}
+                                     {ratingsAreClosed ? (avg !== null ? avg : '-') : '?'}
                                   </span>
                                   {canRate && (
                                     <input type="number" min="1" max="10" step="1" placeholder="Puan"
@@ -1491,7 +1470,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                         })}
                       </div>
                       
-                      {/* Takım B */}
                       <div className="space-y-3 pl-4">
                         <div className="text-pink-400 font-bold text-sm mb-2">{selectedMatch.teamBName}</div>
                         {selectedMatch.teamB.map(p => {
@@ -1509,7 +1487,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                 </span>
                                 <div className="flex items-center gap-2">
                                   <span className="text-xs font-mono font-bold text-yellow-400 w-10 text-right">
-                                     {ratingsAreClosed ? (avg ? avg : '-') : '?'}
+                                     {ratingsAreClosed ? (avg !== null ? avg : '-') : '?'}
                                   </span>
                                   {canRate && (
                                     <input type="number" min="1" max="10" step="1" placeholder="Puan"
@@ -1525,7 +1503,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                    </div>
                 </div>
 
-                {/* Maçı Bitir (Sadece Admin) */}
                 {isAdmin && selectedMatch.status === 'active' && (
                   confirmEndMatchId === selectedMatch.id ? (
                     <div className="w-full bg-red-900/30 border border-red-500 p-4 rounded-lg mt-4 text-center transition-all">
@@ -1547,6 +1524,465 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
             <Trophy size={48} className="mb-4 opacity-50" />
             <p>Detayları görmek veya maçı yönetmek için listeden bir maç seçin.</p>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const GoalForm = ({ team, match, players, onAddGoal }) => {
+  const [scorer, setScorer] = useState('');
+  const [assist, setAssist] = useState('');
+  const teamPlayers = match[`team${team}`].map(tp => players.find(p => p.id === tp.playerId)).filter(Boolean);
+
+  const submit = () => { if(!scorer) return; onAddGoal(scorer, assist === 'none' ? null : assist); setScorer(''); setAssist(''); };
+  const handleScorerChange = (e) => { const newScorer = e.target.value; setScorer(newScorer); if (assist === newScorer) setAssist(''); };
+
+  return (
+    <div className={`p-3 rounded border ${team === 'A' ? 'border-blue-900 bg-blue-900/10' : 'border-pink-900 bg-pink-900/10'}`}>
+      <div className={`text-xs font-bold mb-2 ${team === 'A' ? 'text-blue-400' : 'text-pink-400'}`}>{match[`team${team}Name`]}</div>
+      <select className="w-full text-sm bg-slate-800 border border-slate-600 rounded p-1 mb-2 text-white outline-none" value={scorer} onChange={handleScorerChange}>
+        <option value="">Golü Atan Seç...</option><option value="own_goal">Kendi Kalesine</option>
+        {teamPlayers.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+      </select>
+      <select className="w-full text-sm bg-slate-800 border border-slate-600 rounded p-1 mb-2 text-white outline-none" value={assist} onChange={e => setAssist(e.target.value)} disabled={scorer === 'own_goal'}>
+        <option value="">Asist Yapan (Yoksa boş bırak)</option><option value="none">Asist Yok</option>
+        {teamPlayers.filter(p => p.id !== scorer).map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+      </select>
+      <button onClick={submit} className="w-full bg-slate-700 hover:bg-slate-600 text-xs py-1.5 rounded text-white font-bold transition-colors">Ekle</button>
+    </div>
+  );
+};
+
+
+// ==========================================
+// 5. İSTATİSTİKLER SEKRESİ
+// ==========================================
+function StatsTab({ players, matches, setEnlargedImage }) {
+  const [selectedPlayerForStats, setSelectedPlayerForStats] = useState(null);
+
+  const completedMatches = matches.filter(m => m.status === 'completed');
+  const totalMatches = completedMatches.length;
+  let totalGoals = 0;
+  
+  completedMatches.forEach(m => { totalGoals += m.scoreA + m.scoreB; });
+
+  const statsMap = getPlayerStatsMap(players, matches);
+  const statsArray = Object.values(statsMap).filter(s => s.matches > 0);
+  
+  const topScorers = [...statsArray].sort((a, b) => b.goals - a.goals).slice(0, 10);
+  const topAssists = [...statsArray].sort((a, b) => b.assists - a.assists).slice(0, 10);
+  
+  const eligibleForRating = totalMatches > 0 ? statsArray.filter(s => s.matches >= totalMatches / 2) : statsArray;
+  const topRatings = [...eligibleForRating].sort((a, b) => b.avgRating - a.avgRating).slice(0, 10);
+
+  return (
+    <div className="space-y-8">
+      {selectedPlayerForStats && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4" onClick={() => setSelectedPlayerForStats(null)}>
+          <div className="bg-slate-900 border border-cyan-500/50 p-6 rounded-2xl max-w-sm w-full relative shadow-[0_0_30px_rgba(34,211,238,0.2)]" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setSelectedPlayerForStats(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white"><X size={20}/></button>
+            
+            <div className="flex flex-col items-center mb-6 mt-2">
+               <div 
+                 className="w-20 h-20 rounded-full border-2 border-cyan-400 overflow-hidden mb-3 shadow-[0_0_15px_rgba(34,211,238,0.4)] cursor-pointer"
+                 onClick={(e) => { e.stopPropagation(); selectedPlayerForStats.avatar && setEnlargedImage(selectedPlayerForStats.avatar); }}
+               >
+                  {selectedPlayerForStats.avatar ? <img src={selectedPlayerForStats.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform"/> : <div className="w-full h-full bg-slate-800 flex items-center justify-center text-3xl font-black text-cyan-400">{selectedPlayerForStats.number}</div>}
+               </div>
+               <h3 className="text-xl font-bold text-white">{selectedPlayerForStats.name}</h3>
+               <span className="text-xs font-mono text-cyan-400 bg-cyan-900/30 px-2 py-0.5 rounded mt-1 border border-cyan-800">Forma No: #{selectedPlayerForStats.number}</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 mb-6">
+               <div className="bg-slate-800 p-2 rounded text-center border border-slate-700">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Galibiyet</div><div className="text-lg font-black text-green-400">{selectedPlayerForStats.wins}</div>
+               </div>
+               <div className="bg-slate-800 p-2 rounded text-center border border-slate-700">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Beraberlik</div><div className="text-lg font-black text-yellow-400">{selectedPlayerForStats.draws}</div>
+               </div>
+               <div className="bg-slate-800 p-2 rounded text-center border border-slate-700">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-widest mb-1">Mağlubiyet</div><div className="text-lg font-black text-red-400">{selectedPlayerForStats.losses}</div>
+               </div>
+            </div>
+            
+            <div className="flex justify-between bg-slate-800 p-3 rounded-lg border border-slate-700 mb-6">
+               <div className="text-center w-1/3 border-r border-slate-700"><div className="text-xs text-slate-400">Maç</div><div className="text-xl font-bold text-white">{selectedPlayerForStats.matches}</div></div>
+               <div className="text-center w-1/3 border-r border-slate-700"><div className="text-xs text-slate-400">Gol</div><div className="text-xl font-bold text-cyan-400">{selectedPlayerForStats.goals}</div></div>
+               <div className="text-center w-1/3"><div className="text-xs text-slate-400">Asist</div><div className="text-xl font-bold text-pink-400">{selectedPlayerForStats.assists}</div></div>
+            </div>
+
+            <div>
+               <h4 className="text-sm font-bold text-slate-300 mb-2 border-b border-slate-700 pb-1 flex justify-between items-center">
+                  <span>Son 5 Maç Puanı</span>
+                  <span className="text-xs font-mono text-yellow-400">Ort: {selectedPlayerForStats.avgRating}</span>
+               </h4>
+               <div className="space-y-2">
+                  {selectedPlayerForStats.matchHistory.length === 0 ? <div className="text-xs text-slate-500 text-center py-2">Puan verisi yok.</div> : null}
+                  {selectedPlayerForStats.matchHistory.slice(-5).reverse().map((h, i) => (
+                     <div key={i} className="flex justify-between items-center bg-slate-800/50 p-2 rounded border border-slate-700/50">
+                        <span className="text-xs text-slate-400 flex items-center gap-2"><CalendarDays size={12}/> {h.date}</span>
+                        <span className="text-sm font-black text-yellow-400 flex items-center gap-1">{h.rating} <Star size={12} fill="currentColor"/></span>
+                     </div>
+                  ))}
+               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-gradient-to-br from-blue-900 to-slate-900 p-6 rounded-2xl border border-blue-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{totalMatches}</div><div className="text-sm text-blue-300 font-semibold uppercase tracking-wider">Oynanan Maç</div></div>
+        <div className="bg-gradient-to-br from-cyan-900 to-slate-900 p-6 rounded-2xl border border-cyan-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{totalGoals}</div><div className="text-sm text-cyan-300 font-semibold uppercase tracking-wider">Atılan Gol</div></div>
+        <div className="bg-gradient-to-br from-pink-900 to-slate-900 p-6 rounded-2xl border border-pink-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{totalMatches > 0 ? (totalGoals/totalMatches).toFixed(1) : 0}</div><div className="text-sm text-pink-300 font-semibold uppercase tracking-wider">Maç Başı Gol</div></div>
+        <div className="bg-gradient-to-br from-purple-900 to-slate-900 p-6 rounded-2xl border border-purple-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{players.filter(p=>p.status==='approved').length}</div><div className="text-sm text-purple-300 font-semibold uppercase tracking-wider">Onaylı Oyuncu</div></div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className={`${THEME.panel} p-6 rounded-xl border border-yellow-500/30`}>
+          <h3 className="text-lg font-bold text-yellow-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Goal size={20} /> Gol Krallığı</h3>
+          <ul className="space-y-3">
+            {topScorers.map((s, idx) => (
+              <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded cursor-pointer hover:bg-slate-700 transition-colors">
+                 <div className="flex items-center gap-3">
+                    <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
+                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
+                    <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maçta</div></div>
+                 </div>
+                 <div className="text-xl font-black text-yellow-400">{s.goals}</div>
+              </li>
+            ))}
+            {topScorers.length === 0 && <p className="text-sm text-slate-500 text-center">Henüz veri yok</p>}
+          </ul>
+        </div>
+
+        <div className={`${THEME.panel} p-6 rounded-xl border border-cyan-500/30`}>
+          <h3 className="text-lg font-bold text-cyan-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Users size={20} /> Asist Krallığı</h3>
+          <ul className="space-y-3">
+            {topAssists.map((s, idx) => (
+              <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded cursor-pointer hover:bg-slate-700 transition-colors">
+                 <div className="flex items-center gap-3">
+                    <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
+                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
+                    <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maçta</div></div>
+                 </div>
+                 <div className="text-xl font-black text-cyan-400">{s.assists}</div>
+              </li>
+            ))}
+             {topAssists.length === 0 && <p className="text-sm text-slate-500 text-center">Henüz veri yok</p>}
+          </ul>
+        </div>
+
+        <div className={`${THEME.panel} p-6 rounded-xl border border-blue-500/30 lg:col-span-1 md:col-span-2`}>
+          <h3 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Star size={20} /> En Yüksek Puan Ortalaması</h3>
+          <ul className="space-y-3">
+            {topRatings.filter(r => r.avgRating > 0).map((s, idx) => (
+              <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded border-l-2 border-blue-500 cursor-pointer hover:bg-slate-700 transition-colors">
+                 <div className="flex items-center gap-3">
+                    <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
+                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
+                    <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maç oynadı</div></div>
+                 </div>
+                 <div className="flex flex-col items-end">
+                    <div className="text-lg font-black text-blue-300">{s.avgRating}</div>
+                    <div className="flex text-yellow-400">{[...Array(Math.max(0, Math.round(Number(s.avgRating) / 2)))].map((_, i) => <Star key={i} size={10} fill="currentColor" />)}</div>
+                 </div>
+              </li>
+            ))}
+             {topRatings.filter(r => r.avgRating > 0).length === 0 && <p className="text-sm text-slate-500 text-center">Henüz veri yok</p>}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// YENİ: ADMIN AYARLARI SEKRESİ (SADECE ASIL ADMIN)
+// ==========================================
+function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage }) {
+  const [editingPlayer, setEditingPlayer] = useState(null);
+  const [subTab, setSubTab] = useState('players');
+  const [selectedMatchId, setSelectedMatchId] = useState(null);
+
+  const saveEdit = async () => {
+    if (!editingPlayer.firstName || !editingPlayer.number || !editingPlayer.position) return;
+    await updateDoc(doc(dbPath('players'), editingPlayer.id), editingPlayer);
+    setEditingPlayer(null);
+  };
+
+  const handleDelete = async (id) => {
+    if (window.confirm("DİKKAT: Bu kullanıcıyı tamamen silmek istediğinize emin misiniz?")) {
+      await deleteDoc(doc(dbPath('players'), id));
+    }
+  };
+
+  const sortedPlayers = [...players].sort((a, b) => {
+      const roleWeight = { master_admin: 1, admin: 2, user: 3 };
+      if (roleWeight[a.role] !== roleWeight[b.role]) return roleWeight[a.role] - roleWeight[b.role];
+      return a.firstName.localeCompare(b.firstName);
+  });
+
+  const handleForceRatingChange = async (matchId, targetPlayerId, raterId, val) => {
+    const match = matches.find(m => m.id === matchId);
+    if(!match) return;
+    const numVal = Number(val);
+    const newRatings = { ...match.ratings };
+    if (!newRatings[targetPlayerId]) newRatings[targetPlayerId] = {};
+    
+    if (val === '') {
+        delete newRatings[targetPlayerId][raterId];
+    } else if (numVal >= 1 && numVal <= 10) {
+        newRatings[targetPlayerId][raterId] = numVal;
+    } else {
+        return;
+    }
+    await updateDoc(doc(dbPath('matches'), matchId), { ratings: newRatings });
+  };
+
+  const toggleRatingStatus = async (matchId, currentStatus) => {
+    if (currentStatus) {
+        await updateDoc(doc(dbPath('matches'), matchId), { ratingsClosed: false, forceOpen: true });
+    } else {
+        await updateDoc(doc(dbPath('matches'), matchId), { ratingsClosed: true, forceOpen: false });
+    }
+  };
+
+  const getPlayerName = (id) => {
+    const p = players.find(x => x.id === id);
+    return p ? `${p.firstName} ${p.lastName}` : 'Bilinmiyor';
+  };
+
+  const sortedMatches = [...matches].sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`));
+  const selectedMatch = matches.find(m => m.id === selectedMatchId);
+  const bannedRatersForAdminMatch = selectedMatch ? getBannedRaters(selectedMatch.ratings) : [];
+  const isMatchRatingsClosed = isRatingsClosedForMatch(selectedMatch);
+
+  return (
+    <div className="space-y-6">
+      <div className={`${THEME.panel} p-6 rounded-xl border border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.15)]`}>
+        <h2 className="text-xl font-bold mb-6 flex items-center gap-2 border-b border-red-900/50 pb-3 text-red-400">
+          <Settings size={24} /> Tam Yetkili Asıl Admin Paneli
+        </h2>
+        
+        <div className="flex gap-2 mb-6">
+            <button onClick={()=>setSubTab('players')} className={`px-4 py-2 rounded font-bold text-sm transition-colors ${subTab === 'players' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Oyuncu Ayarları</button>
+            <button onClick={()=>setSubTab('matches')} className={`px-4 py-2 rounded font-bold text-sm transition-colors ${subTab === 'matches' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Maç Ayarları (Puanlama)</button>
+        </div>
+
+        {subTab === 'players' && (
+            <>
+            <p className="text-sm text-slate-400 mb-6">Burada sistemdeki tüm kullanıcıların (onaylı/onaysız) gizli bilgilerini görebilir ve düzenleyebilirsiniz. Şifreler dahil tüm yetkiler elinizdedir.</p>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-slate-900 text-slate-400">
+                  <tr>
+                    <th className="p-3 rounded-tl-lg w-12 text-center">No</th>
+                    <th className="p-3">Kullanıcı Bilgisi</th>
+                    <th className="p-3">Pozisyon & İletişim</th>
+                    <th className="p-3 text-orange-400">Gizli Şifre</th>
+                    <th className="p-3">Rol / Durum</th>
+                    <th className="p-3 rounded-tr-lg text-center">İşlem</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedPlayers.map(p => {
+                      if (editingPlayer?.id === p.id) {
+                          return (
+                             <tr key={`edit-${p.id}`} className="border-b border-slate-700 bg-slate-800">
+                                <td colSpan={6} className="p-4">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-4">
+                                        <div><label className="text-[10px] text-slate-400">Ad</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.firstName} onChange={e=>setEditingPlayer({...editingPlayer, firstName: e.target.value})} /></div>
+                                        <div><label className="text-[10px] text-slate-400">Soyad</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.lastName} onChange={e=>setEditingPlayer({...editingPlayer, lastName: e.target.value})} /></div>
+                                        <div><label className="text-[10px] text-slate-400">Kullanıcı Adı</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.username || ''} onChange={e=>setEditingPlayer({...editingPlayer, username: e.target.value})} /></div>
+                                        <div><label className="text-[10px] text-slate-400">Şifre</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.password} onChange={e=>setEditingPlayer({...editingPlayer, password: e.target.value})} /></div>
+                                        <div><label className="text-[10px] text-slate-400">Forma No</label><input type="number" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.number} onChange={e=>setEditingPlayer({...editingPlayer, number: e.target.value})} /></div>
+                                        <div><label className="text-[10px] text-slate-400">Pozisyon</label><select className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.position} onChange={e=>setEditingPlayer({...editingPlayer, position: e.target.value})}><option>Kaleci</option><option>Defans</option><option>Orta Saha</option><option>Forvet</option></select></div>
+                                        <div><label className="text-[10px] text-slate-400">Telefon</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.phone || ''} onChange={e=>setEditingPlayer({...editingPlayer, phone: e.target.value})} /></div>
+                                        <div><label className="text-[10px] text-slate-400">Grup</label><input type="text" className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.group || ''} onChange={e=>setEditingPlayer({...editingPlayer, group: e.target.value})} /></div>
+                                        <div><label className="text-[10px] text-slate-400">Rol</label><select className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.role} onChange={e=>setEditingPlayer({...editingPlayer, role: e.target.value})}><option value="user">User</option><option value="admin">Admin</option><option value="master_admin">Master Admin</option></select></div>
+                                        <div><label className="text-[10px] text-slate-400">Durum</label><select className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-white text-xs outline-none focus:border-red-400" value={editingPlayer.status} onChange={e=>setEditingPlayer({...editingPlayer, status: e.target.value})}><option value="approved">Approved</option><option value="pending">Pending</option></select></div>
+                                    </div>
+                                    <div className="flex gap-2 justify-end">
+                                        <button onClick={() => setEditingPlayer(null)} className="text-slate-400 hover:text-white font-bold text-xs bg-slate-700 px-4 py-2 rounded">İptal</button>
+                                        <button onClick={saveEdit} className="text-green-400 hover:text-green-300 font-bold text-xs bg-green-900/40 px-4 py-2 rounded border border-green-700 flex items-center gap-1"><Check size={14}/> Kaydet</button>
+                                    </div>
+                                </td>
+                             </tr>
+                          );
+                      }
+
+                      return (
+                          <tr key={p.id} className="border-b border-slate-700 hover:bg-slate-800 transition-colors">
+                            <td className="p-3 text-cyan-400 font-bold text-center text-lg">{p.number || '-'}</td>
+                            <td className="p-3">
+                                <div className="font-bold text-white flex items-center gap-2">
+                                  {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(p.avatar); }} />}
+                                  {p.firstName} {p.lastName}
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-1">ID: <span className="text-cyan-500">{p.id}</span> {p.username && <span className="ml-1 text-blue-300">@{p.username}</span>}</div>
+                            </td>
+                            <td className="p-3 text-xs">
+                                <div className={`px-2 py-0.5 rounded inline-block mb-1 ${p.position === 'Kaleci' ? 'bg-yellow-600/20 text-yellow-400' : p.position === 'Defans' ? 'bg-blue-600/20 text-blue-400' : p.position === 'Orta Saha' ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>{p.position}</div>
+                                <div className="text-slate-400">{p.phone || '-'}</div>
+                            </td>
+                            <td className="p-3 text-xs font-mono font-bold text-orange-400 bg-slate-900/50">{p.password}</td>
+                            <td className="p-3 text-xs">
+                                <div className={`px-2 py-0.5 rounded inline-block mb-1 ${p.role === 'master_admin' ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-700' : p.role === 'admin' ? 'bg-cyan-900/50 text-cyan-400 border border-cyan-700' : 'bg-slate-700 text-slate-300'}`}>{p.role}</div>
+                                <div className={`px-2 py-0.5 rounded inline-block ml-1 ${p.status === 'approved' ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>{p.status}</div>
+                            </td>
+                            <td className="p-3 text-center">
+                                 <div className="flex gap-2 justify-center">
+                                     <button onClick={() => setEditingPlayer(p)} className="text-blue-400 p-1.5 bg-blue-900/20 rounded hover:bg-blue-600 hover:text-white transition-colors" title="Düzenle"><Edit size={14}/></button>
+                                     <button onClick={() => handleDelete(p.id)} className="text-red-400 p-1.5 bg-red-900/20 rounded hover:bg-red-600 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed" disabled={p.role === 'master_admin'} title="Sil"><Trash2 size={14}/></button>
+                                 </div>
+                            </td>
+                          </tr>
+                      );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            </>
+        )}
+
+        {subTab === 'matches' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-1 space-y-4 max-h-[600px] overflow-y-auto pr-2">
+                   {sortedMatches.length === 0 && <p className="text-slate-500">Maç bulunamadı.</p>}
+                   {sortedMatches.map(m => (
+                      <div key={m.id} onClick={() => setSelectedMatchId(m.id)} className={`p-4 rounded-xl border cursor-pointer hover:bg-slate-700 transition-all ${selectedMatch?.id === m.id ? 'bg-slate-700 border-cyan-400' : 'bg-slate-800 border-slate-700'}`}>
+                         <div className="text-xs text-slate-400 mb-1">{m.date} - {m.time}</div>
+                         <div className="font-bold flex justify-between">
+                            <span className="text-blue-400 truncate w-1/3">{m.teamAName}</span>
+                            <span className="text-white">{m.scoreA} - {m.scoreB}</span>
+                            <span className="text-pink-400 truncate w-1/3 text-right">{m.teamBName}</span>
+                         </div>
+                      </div>
+                   ))}
+                </div>
+                <div className="lg:col-span-2">
+                   {selectedMatch ? (
+                     <div className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-xl">
+                        <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+                           <h3 className="text-lg font-bold text-white">Puan Düzenleme: {selectedMatch.teamAName} vs {selectedMatch.teamBName}</h3>
+                           <button onClick={() => toggleRatingStatus(selectedMatch.id, isMatchRatingsClosed)} 
+                             className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded transition-colors ${isMatchRatingsClosed ? 'bg-green-900/40 text-green-400 hover:bg-green-600 hover:text-white border border-green-700' : 'bg-red-900/40 text-red-400 hover:bg-red-600 hover:text-white border border-red-700'}`}>
+                             {isMatchRatingsClosed ? <><Unlock size={14}/> Oylamayı Manuel Aç</> : <><Lock size={14}/> Oylamayı Manuel Bitir</>}
+                           </button>
+                        </div>
+                        <p className="text-xs text-slate-400 mb-6">Buradan maçtaki tüm oylamaları detaylıca görebilir, oyları değiştirebilir veya oy vermeyen oyuncular yerine direkt oy ekleyebilirsiniz. Yapılan değişiklikler anında kaydedilir.</p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                           {/* Team A Admin View */}
+                           <div className="space-y-4 border-r border-slate-700 pr-4">
+                             <h4 className="font-bold text-blue-400 text-center bg-blue-900/20 py-2 rounded">{selectedMatch.teamAName}</h4>
+                             {selectedMatch.teamA.map(p => {
+                                const ratingData = getTrimmedRatingData(selectedMatch.ratings?.[p.playerId], p.playerId, bannedRatersForAdminMatch);
+                                const allMatchPlayers = [...selectedMatch.teamA, ...selectedMatch.teamB];
+                                const playerInfo = players.find(x => x.id === p.playerId);
+
+                                return (
+                                   <div key={p.playerId} className="bg-slate-900 p-3 rounded border border-slate-700">
+                                      <div className="font-bold text-sm mb-3 border-b border-slate-700/50 pb-1 text-white flex items-center gap-2">
+                                          {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(playerInfo.avatar); }}/>}
+                                          {getPlayerName(p.playerId)}
+                                      </div>
+                                      <div className="space-y-1.5">
+                                        {allMatchPlayers.filter(mp => mp.playerId !== p.playerId).map(mp => {
+                                              const raterId = mp.playerId;
+                                              const score = selectedMatch.ratings?.[p.playerId]?.[raterId] || '';
+                                              
+                                              const isBanned = bannedRatersForAdminMatch.includes(raterId);
+                                              const isExcludedMin = raterId === ratingData.excludedMinRater;
+                                              const isExcludedMax = raterId === ratingData.excludedMaxRater;
+                                              
+                                              let textColor = "text-yellow-400";
+                                              if (score !== '') {
+                                                  if (isBanned) textColor = "text-blue-400";
+                                                  else if (isExcludedMax) textColor = "text-green-400";
+                                                  else if (isExcludedMin) textColor = "text-red-400";
+                                              }
+
+                                              return (
+                                                <div key={raterId} className="flex justify-between items-center bg-slate-950 p-1.5 rounded border border-slate-800 hover:border-cyan-500/30 transition-colors">
+                                                   <span className={`truncate flex-1 pl-1 text-xs ${score === '' ? 'text-slate-500 italic' : 'text-slate-300'}`}>{getPlayerName(raterId)}</span>
+                                                   <input type="number" min="1" max="10" 
+                                                          className={`w-12 bg-slate-800 font-bold border border-slate-600 rounded text-center outline-none focus:border-cyan-400 text-xs py-1 ${textColor}`} 
+                                                          value={score} 
+                                                          onChange={(e) => handleForceRatingChange(selectedMatch.id, p.playerId, raterId, e.target.value)} 
+                                                          placeholder="-" />
+                                                </div>
+                                              );
+                                        })}
+                                      </div>
+                                   </div>
+                                )
+                             })}
+                           </div>
+                           {/* Team B Admin View */}
+                           <div className="space-y-4 pl-4">
+                             <h4 className="font-bold text-pink-400 text-center bg-pink-900/20 py-2 rounded">{selectedMatch.teamBName}</h4>
+                             {selectedMatch.teamB.map(p => {
+                                const ratingData = getTrimmedRatingData(selectedMatch.ratings?.[p.playerId], p.playerId, bannedRatersForAdminMatch);
+                                const allMatchPlayers = [...selectedMatch.teamA, ...selectedMatch.teamB];
+                                const playerInfo = players.find(x => x.id === p.playerId);
+
+                                return (
+                                   <div key={p.playerId} className="bg-slate-900 p-3 rounded border border-slate-700">
+                                      <div className="font-bold text-sm mb-3 border-b border-slate-700/50 pb-1 text-white flex items-center gap-2">
+                                          {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(playerInfo.avatar); }}/>}
+                                          {getPlayerName(p.playerId)}
+                                      </div>
+                                      <div className="space-y-1.5">
+                                        {allMatchPlayers.filter(mp => mp.playerId !== p.playerId).map(mp => {
+                                              const raterId = mp.playerId;
+                                              const score = selectedMatch.ratings?.[p.playerId]?.[raterId] || '';
+                                              
+                                              const isBanned = bannedRatersForAdminMatch.includes(raterId);
+                                              const isExcludedMin = raterId === ratingData.excludedMinRater;
+                                              const isExcludedMax = raterId === ratingData.excludedMaxRater;
+                                              
+                                              let textColor = "text-yellow-400";
+                                              if (score !== '') {
+                                                  if (isBanned) textColor = "text-blue-400";
+                                                  else if (isExcludedMax) textColor = "text-green-400";
+                                                  else if (isExcludedMin) textColor = "text-red-400";
+                                              }
+
+                                              return (
+                                                <div key={raterId} className="flex justify-between items-center bg-slate-950 p-1.5 rounded border border-slate-800 hover:border-cyan-500/30 transition-colors">
+                                                   <span className={`truncate flex-1 pl-1 text-xs ${score === '' ? 'text-slate-500 italic' : 'text-slate-300'}`}>{getPlayerName(raterId)}</span>
+                                                   <input type="number" min="1" max="10" 
+                                                          className={`w-12 bg-slate-800 font-bold border border-slate-600 rounded text-center outline-none focus:border-cyan-400 text-xs py-1 ${textColor}`} 
+                                                          value={score} 
+                                                          onChange={(e) => handleForceRatingChange(selectedMatch.id, p.playerId, raterId, e.target.value)} 
+                                                          placeholder="-" />
+                                                </div>
+                                              );
+                                        })}
+                                      </div>
+                                   </div>
+                                )
+                             })}
+                           </div>
+                        </div>
+                        <div className="mt-6 p-3 bg-slate-900 rounded border border-slate-700 text-center">
+                           <div className="text-[10px] text-slate-400 flex flex-wrap justify-center gap-4">
+                              <span className="text-green-400 font-bold bg-green-900/20 px-2 py-1 rounded">Yeşil: Ortalamadan +2 Fazla (İptal)</span>
+                              <span className="text-red-400 font-bold bg-red-900/20 px-2 py-1 rounded">Kırmızı: En Düşük (İptal)</span>
+                              <span className="text-blue-400 font-bold bg-blue-900/20 px-2 py-1 rounded">Mavi: Ortalaması 9'u Geçen Rater (İptal)</span>
+                           </div>
+                        </div>
+                     </div>
+                   ) : (
+                     <div className="h-full min-h-[300px] flex items-center justify-center border-2 border-dashed border-slate-700 rounded-xl text-slate-500 bg-slate-800/50">
+                        Puan detaylarını görmek için soldan bir maç seçin.
+                     </div>
+                   )}
+                </div>
+            </div>
         )}
       </div>
     </div>
