@@ -96,8 +96,9 @@ const calcPlayerMatchRating = (match, playerId, bannedRaters = []) => {
   const ratingData = getTrimmedRatingData(match.ratings?.[playerId], playerId, bannedRaters);
   if (ratingData.avg === null) return null;
   let avg = ratingData.avg;
-  const goals = match.events.filter(ev => ev.type === 'goal' && ev.scorerId === playerId).length;
-  const assists = match.events.filter(ev => ev.type === 'goal' && ev.assistId === playerId).length;
+  const events = match.events || [];
+  const goals = events.filter(ev => ev.type === 'goal' && ev.scorerId === playerId).length;
+  const assists = events.filter(ev => ev.type === 'goal' && ev.assistId === playerId).length;
   avg += (goals + assists) * 0.01;
   return Math.max(1, Math.min(10, avg));
 };
@@ -110,14 +111,21 @@ const getPlayerStatsMap = (players, matches) => {
   });
 
   completedMatches.forEach(m => {
-    const allPlayersInMatch = [...m.teamA, ...m.teamB, ...m.subs.map(id => ({playerId: id}))];
+    // Çökme önleyici (Boş diziler)
+    const teamA = m.teamA || [];
+    const teamB = m.teamB || [];
+    const subs = m.subs || [];
+    const events = m.events || [];
+
+    const allPlayersInMatch = [...teamA, ...teamB, ...subs.map(id => ({playerId: id}))];
     const bannedRaters = getBannedRaters(m.ratings);
+    
     allPlayersInMatch.forEach(pObj => {
       const stat = statsMap[pObj.playerId];
       if(stat) {
         stat.matches += 1;
-        const isTeamA = m.teamA.some(p => p.playerId === pObj.playerId);
-        const isTeamB = m.teamB.some(p => p.playerId === pObj.playerId);
+        const isTeamA = teamA.some(p => p.playerId === pObj.playerId);
+        const isTeamB = teamB.some(p => p.playerId === pObj.playerId);
         if (m.scoreA === m.scoreB) stat.draws++;
         else if ((isTeamA && m.scoreA > m.scoreB) || (isTeamB && m.scoreB > m.scoreA)) stat.wins++;
         else stat.losses++;
@@ -133,7 +141,7 @@ const getPlayerStatsMap = (players, matches) => {
       }
     });
 
-    m.events.forEach(ev => {
+    events.forEach(ev => {
       if(ev.type === 'goal') {
         if(ev.scorerId !== 'own_goal' && statsMap[ev.scorerId]) statsMap[ev.scorerId].goals += 1;
         if(ev.assistId && statsMap[ev.assistId]) statsMap[ev.assistId].assists += 1;
@@ -187,7 +195,7 @@ export default function App() {
     return () => { unsubPlayers(); unsubMatches(); unsubNotifs(); unsubSettings(); };
   }, [firebaseUser]);
 
-  // PUSH BİLDİRİM İZNİ VE TOKEN ALMA (TELEFONA BİLDİRİM)
+  // PUSH BİLDİRİM İZNİ VE TOKEN ALMA
   useEffect(() => {
     const setupPushNotifications = async () => {
       if (!appUserId) return;
@@ -196,7 +204,6 @@ export default function App() {
         const permission = await Notification.requestPermission();
         
         if (permission === 'granted') {
-          // VAPID KEY EKLENDI
           const currentToken = await getToken(messaging, { vapidKey: "BNOnFq8MFh1cD-xgwW672tuIisx1FaOcQ0AIfMmMOAxEd3PpiQqeLIUxreI6e8hrGQpZaFFBCwo_zBqPnScXfgo" });
           if (currentToken) {
             await updateDoc(doc(dbPath('players'), appUserId), { fcmToken: currentToken });
@@ -213,15 +220,13 @@ export default function App() {
     setupPushNotifications();
   }, [appUserId]);
 
-  // BİLDİRİM GÖNDERME FONKSİYONU (HEM UYGULAMA İÇİ HEM PUSH)
+  // BİLDİRİM GÖNDERME
   const sendNotification = async (title, message, targetUsers) => {
-      // 1. Uygulama İçi (Zil) Bildirimi Kaydet
       const notifId = generateId();
       await setDoc(doc(dbPath('notifications'), notifId), {
-          id: notifId, title, message, targetUsers, createdAt: Date.now(), readBy: []
+          id: notifId, title, message, targetUsers, createdAt: Date.now(), readBy: [], deletedBy: []
       });
 
-      // 2. Telefonlara Push Bildirim Gönder (Vercel API Tetikleyicisi)
       try {
          let tokens = [];
          if (targetUsers === 'all') {
@@ -250,18 +255,31 @@ export default function App() {
   const markAsRead = async (notifId) => {
       const notif = notifications.find(n => n.id === notifId);
       if (!notif) return;
-      if (!notif.readBy.includes(appUserId)) {
-          await updateDoc(doc(dbPath('notifications'), notifId), { readBy: [...notif.readBy, appUserId] });
+      const readByArray = notif.readBy || [];
+      if (!readByArray.includes(appUserId)) {
+          await updateDoc(doc(dbPath('notifications'), notifId), { readBy: [...readByArray, appUserId] });
       }
   };
 
   const markAllAsRead = async () => {
       const myNotifs = notifications.filter(n => n.targetUsers === 'all' || n.targetUsers.includes(appUserId));
       myNotifs.forEach(async (n) => {
-          if (!n.readBy.includes(appUserId)) {
-             await updateDoc(doc(dbPath('notifications'), n.id), { readBy: [...n.readBy, appUserId] });
+          const readByArray = n.readBy || [];
+          if (!readByArray.includes(appUserId)) {
+             await updateDoc(doc(dbPath('notifications'), n.id), { readBy: [...readByArray, appUserId] });
           }
       });
+  };
+
+  // Yeni: Bildirim Silme (Kullanıcı kendi açısından gizler)
+  const deleteNotification = async (notifId, e) => {
+      e.stopPropagation();
+      const notif = notifications.find(n => n.id === notifId);
+      if (!notif) return;
+      const deletedByArray = notif.deletedBy || [];
+      if (!deletedByArray.includes(appUserId)) {
+          await updateDoc(doc(dbPath('notifications'), notifId), { deletedBy: [...deletedByArray, appUserId] });
+      }
   };
 
   if (authLoading) return <div className={`min-h-screen ${THEME.bg} flex items-center justify-center text-cyan-400`}><Star className="animate-spin w-12 h-12" /></div>;
@@ -306,8 +324,12 @@ export default function App() {
     }
   };
 
-  const myNotifications = notifications.filter(n => n.targetUsers === 'all' || n.targetUsers.includes(currentUserData.id)).sort((a,b) => b.createdAt - a.createdAt);
-  const unreadCount = myNotifications.filter(n => !n.readBy.includes(currentUserData.id)).length;
+  // Silinmemiş bildirimleri filtrele
+  const myNotifications = notifications
+    .filter(n => (n.targetUsers === 'all' || n.targetUsers.includes(currentUserData.id)) && !(n.deletedBy || []).includes(currentUserData.id))
+    .sort((a,b) => b.createdAt - a.createdAt);
+    
+  const unreadCount = myNotifications.filter(n => !(n.readBy || []).includes(currentUserData.id)).length;
 
   return (
     <div className={`min-h-screen ${THEME.bg} ${THEME.text} font-sans`}>
@@ -351,6 +373,7 @@ export default function App() {
                 <div className="text-[10px] text-cyan-400 font-mono">@{currentUserData.username || currentUserData.id}</div>
               </div>
               
+              {/* BİLDİRİM ZİLİ */}
               <div className="relative">
                 <button onClick={() => setShowNotifMenu(!showNotifMenu)} className="relative p-2 text-slate-300 hover:text-white transition-colors bg-slate-900 rounded-full border border-slate-700 focus:outline-none">
                    <Bell size={18} />
@@ -367,15 +390,20 @@ export default function App() {
                          <div className="p-6 text-center text-slate-500 text-sm flex flex-col items-center gap-2"><Bell size={24} className="opacity-30"/> Hiç bildiriminiz yok.</div>
                       ) : (
                          myNotifications.map(n => {
-                           const isRead = n.readBy.includes(appUserId);
+                           const isRead = (n.readBy || []).includes(appUserId);
                            return (
-                             <div key={n.id} onClick={() => markAsRead(n.id)} className={`p-3 border-b border-slate-700/50 cursor-pointer hover:bg-slate-700 transition-colors ${!isRead ? 'bg-cyan-900/20' : ''}`}>
-                                <div className="flex justify-between items-start mb-1">
+                             <div key={n.id} onClick={() => markAsRead(n.id)} className={`p-3 border-b border-slate-700/50 cursor-pointer hover:bg-slate-700 transition-colors relative ${!isRead ? 'bg-cyan-900/20' : ''}`}>
+                                <div className="flex justify-between items-start mb-1 pr-6">
                                   <span className={`text-sm font-bold ${!isRead ? 'text-cyan-400' : 'text-slate-300'}`}>{n.title}</span>
                                   {!isRead && <span className="w-2 h-2 bg-cyan-400 rounded-full flex-shrink-0 mt-1 shadow-[0_0_5px_rgba(34,211,238,0.8)]"></span>}
                                 </div>
-                                <div className="text-xs text-slate-400 whitespace-pre-wrap break-words">{n.message}</div>
+                                <div className="text-xs text-slate-400 whitespace-pre-wrap break-words pr-4">{n.message}</div>
                                 <div className="text-[9px] text-slate-500 mt-2 text-right">{new Date(n.createdAt).toLocaleString('tr-TR')}</div>
+                                
+                                {/* Çöp Kutusu (Bildirim Silme) */}
+                                <button onClick={(e) => deleteNotification(n.id, e)} className="absolute bottom-2 left-2 text-slate-500 hover:text-red-400 p-1 transition-colors" title="Bildirimi Sil">
+                                  <Trash2 size={14} />
+                                </button>
                              </div>
                            )
                          })
@@ -758,7 +786,7 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
                   <div className="absolute left-0 top-1/2 -mt-16 w-24 h-32 border-2 border-l-0 border-white/80 z-10"></div>
                   <div className="absolute right-0 top-1/2 -mt-16 w-24 h-32 border-2 border-r-0 border-white/80 z-10"></div>
                   
-                  {nextMatch.teamA.map(p => {
+                  {nextMatch?.teamA?.map(p => {
                       const player = players.find(x => x.id === p.playerId); if(!player) return null;
                       return (
                           <div key={p.playerId} className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-30" style={{ left: `${p.x}%`, top: `${p.y}%` }}>
@@ -769,7 +797,7 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
                           </div>
                       );
                   })}
-                  {nextMatch.teamB.map(p => {
+                  {nextMatch?.teamB?.map(p => {
                       const player = players.find(x => x.id === p.playerId); if(!player) return null;
                       return (
                           <div key={p.playerId} className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-30" style={{ left: `${p.x}%`, top: `${p.y}%` }}>
@@ -859,7 +887,7 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
                         <td className="p-3">
                            <div className="font-semibold text-white flex items-center gap-2">
                              {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(p.avatar); }} />}
-                             {p.firstName} {p.lastName} {p.role === 'master_admin' && <ShieldCheck size={14} className="text-yellow-400" title="Asıl Admin" />} {p.role === 'admin' && <Shield size={14} className="text-cyan-400" title="Admin" />}
+                             {p.firstName} {p.lastName}
                            </div>
                            <div className="text-[10px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
                               {isAdmin && <span>ID: <span className="text-cyan-500 font-bold">{p.id}</span></span>}
@@ -934,8 +962,8 @@ function SquadTab({ players, matches, setEnlargedImage, settings, sendNotificati
 
     await setDoc(doc(dbPath('matches'), newMatch.id), newMatch);
     
-    // BİLDİRİM GÖNDERME MANTIĞI
-    if (settings?.autoMatch) {
+    // BİLDİRİM GÖNDERME
+    if (settings?.autoMatch && sendNotification) {
        const playersInMatch = [...newMatch.teamA, ...newMatch.teamB].map(p => p.playerId);
        await sendNotification("MAÇINIZ VAR", `${matchData.date} - ${matchData.time} tarihinde maçınız planlandı. Stadyum: ${newMatch.stadium}`, playersInMatch);
     }
@@ -966,10 +994,9 @@ function SquadTab({ players, matches, setEnlargedImage, settings, sendNotificati
               {availablePlayers.map(p => (
                 <div key={p.id} draggable onDragStart={(e) => handleDragStart(e, p.id, 'pool')} onDoubleClick={() => handleDoubleClickPlayer(p.id)} className="bg-slate-900 p-2 rounded border border-slate-700 cursor-grab active:cursor-grabbing hover:border-cyan-400 flex flex-col sm:flex-row justify-between sm:items-center text-sm transition-colors gap-2 sm:gap-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 font-mono flex items-center gap-1 w-6">{p.avatar ? <img src={p.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e)=>{e.stopPropagation(); setEnlargedImage(p.avatar);}}/> : `#${p.number}`}</span>
+                    <span className="text-xs text-slate-500 font-mono flex items-center gap-1 w-6">{p.avatar ? <img src={p.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e)=>{e.stopPropagation(); setEnlargedImage && setEnlargedImage(p.avatar);}}/> : `#${p.number}`}</span>
                     <div className="flex flex-col">
                       <span>{p.firstName} {p.lastName}</span>
-                      <span className="text-[10px] text-yellow-400 flex items-center gap-1 mt-0.5"><Star size={10} fill="currentColor"/> {statsMap[p.id]?.avgRating > 0 ? statsMap[p.id].avgRating : 'Puan Yok'}</span>
                     </div>
                   </div>
                   <div className="flex gap-1 justify-end">
@@ -990,10 +1017,9 @@ function SquadTab({ players, matches, setEnlargedImage, settings, sendNotificati
                 return (
                   <div key={p.id} draggable onDragStart={(e) => handleDragStart(e, p.id, 'subs')} className="bg-slate-700 p-2 rounded cursor-grab flex flex-col sm:flex-row justify-between sm:items-center text-sm border border-yellow-600/30 gap-2 sm:gap-0">
                     <div className="flex items-center gap-2">
-                       {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e)=>{e.stopPropagation(); setEnlargedImage(p.avatar);}}/>}
+                       {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e)=>{e.stopPropagation(); setEnlargedImage && setEnlargedImage(p.avatar);}}/>}
                        <div className="flex flex-col">
                          <span>{p.firstName} {p.lastName}</span>
-                         <span className="text-[10px] text-yellow-300 flex items-center gap-1 mt-0.5"><Star size={10} fill="currentColor"/> {statsMap[p.id]?.avgRating > 0 ? statsMap[p.id].avgRating : 'Puan Yok'}</span>
                        </div>
                     </div>
                     <div className="flex gap-1 justify-end">
@@ -1037,7 +1063,7 @@ const PitchPlayer = ({ pp, players, onDragStart, teamColor, onUpdatePosition, on
     <div draggable onDragStart={(e) => onDragStart(e, pp.playerId, `pitch${pp.team}`)} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} className="absolute cursor-grab active:cursor-grabbing transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group z-30" style={{ left: `${pp.x}%`, top: `${pp.y}%`, touchAction: 'none' }}>
       <div 
          className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 overflow-hidden ${teamColor} ${p.avatar ? 'cursor-pointer' : ''}`}
-         onClick={(e) => { e.stopPropagation(); if(p.avatar) setEnlargedImage(p.avatar); }}
+         onClick={(e) => { e.stopPropagation(); if(p.avatar && setEnlargedImage) setEnlargedImage(p.avatar); }}
       >
         {p.avatar ? <img src={p.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform"/> : (p.number || p.firstName.charAt(0))}
       </div>
@@ -1068,7 +1094,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     if (match.status !== 'completed' || !isRatingsClosedForMatch(match)) return null;
     let bestPlayer = null;
     let bestScore = -1;
-    const allPlayers = [...match.teamA, ...match.teamB];
+    const allPlayers = [...(match.teamA || []), ...(match.teamB || [])];
     const bannedRaters = getBannedRaters(match.ratings);
 
     allPlayers.forEach(p => {
@@ -1086,14 +1112,14 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     if (!isAdmin) return;
     await updateDoc(doc(dbPath('matches'), matchId), { status });
     const m = matches.find(x => x.id === matchId);
-    const pList = [...m.teamA, ...m.teamB].map(p => p.playerId);
+    const pList = [...(m.teamA || []), ...(m.teamB || [])].map(p => p.playerId);
 
-    if (status === 'active' && settings?.autoRatingStart) {
+    if (status === 'active' && settings?.autoRatingStart && sendNotification) {
         await sendNotification("Maç oylaması başlamıştır", `${m.teamAName} vs ${m.teamBName} maçı için oylama başlamıştır.`, pList);
     }
     if (status === 'completed') {
         setConfirmEndMatchId(null);
-        if (settings?.autoRatingEnd) {
+        if (settings?.autoRatingEnd && sendNotification) {
            await sendNotification("Oylama Tamamlanmıştır", `${m.teamAName} vs ${m.teamBName} maçının oylaması ve istatistik hesaplamaları tamamlanmıştır.`, pList);
         }
     }
@@ -1117,7 +1143,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
 
   const handleAddGoal = async (teamScored, scorerId, assistId) => {
     if (!isAdmin) return;
-    const newEvents = [...selectedMatch.events];
+    const newEvents = [...(selectedMatch.events || [])];
     const scoreAAtTime = newEvents.filter(e => e.team === 'A').length + (teamScored === 'A' ? 1 : 0);
     const scoreBAtTime = newEvents.filter(e => e.team === 'B').length + (teamScored === 'B' ? 1 : 0);
     newEvents.push({ id: generateId(), type: 'goal', team: teamScored, scorerId, assistId, scoreAAtTime, scoreBAtTime });
@@ -1126,7 +1152,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
 
   const saveEventEdit = async () => {
     if (!isAdmin || !editingEvent || !editingEvent.scorerId) return;
-    const newEvents = selectedMatch.events.map(e => 
+    const newEvents = (selectedMatch.events || []).map(e => 
       e.id === editingEvent.id ? { ...e, scorerId: editingEvent.scorerId, assistId: editingEvent.assistId === 'none' ? null : editingEvent.assistId } : e
     );
     await updateDoc(doc(dbPath('matches'), selectedMatch.id), { events: newEvents });
@@ -1136,7 +1162,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
   const deleteEvent = async (eventId) => {
     if (!isAdmin) return;
     if (!window.confirm("Bu golü silmek istediğinize emin misiniz? Maç skoru yeniden hesaplanacaktır.")) return;
-    const newEvents = selectedMatch.events.filter(e => e.id !== eventId);
+    const newEvents = (selectedMatch.events || []).filter(e => e.id !== eventId);
     let newScoreA = 0; let newScoreB = 0;
     const recalculatedEvents = newEvents.map(e => {
        if (e.team === 'A') newScoreA++; if (e.team === 'B') newScoreB++;
@@ -1165,8 +1191,8 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     await updateDoc(doc(dbPath('matches'), selectedMatch.id), { ratings: newRatings });
   };
 
-  const myTeam = selectedMatch?.teamA.some(p => p.playerId === currentUserData.id) ? 'A' :
-                 selectedMatch?.teamB.some(p => p.playerId === currentUserData.id) ? 'B' : null;
+  const myTeam = selectedMatch?.teamA?.some(p => p.playerId === currentUserData.id) ? 'A' :
+                 selectedMatch?.teamB?.some(p => p.playerId === currentUserData.id) ? 'B' : null;
 
   const canRatePlayer = (playerId) => {
     if (ratingsAreClosed) return false;
@@ -1295,7 +1321,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                   </div>
                 )}
 
-                {selectedMatch.events.length > 0 && (
+                {(selectedMatch.events || []).length > 0 && (
                   <div className="mt-8 mb-6">
                     <h3 className="font-bold text-sm mb-6 border-b border-slate-700 pb-2 text-center text-slate-400 uppercase tracking-widest">Maç Olayları</h3>
                     <div className="relative w-full flex flex-col items-center">
@@ -1303,7 +1329,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                       {selectedMatch.events.map((ev, idx) => {
                         const scoreDisplay = ev.scoreAAtTime !== undefined ? `${ev.scoreAAtTime} - ${ev.scoreBAtTime}` : '? - ?';
                         if (editingEvent?.id === ev.id) {
-                          const teamPlayers = selectedMatch[`team${ev.team}`].map(tp => players.find(p => p.id === tp.playerId)).filter(Boolean);
+                          const teamPlayers = (selectedMatch[`team${ev.team}`] || []).map(tp => players.find(p => p.id === tp.playerId)).filter(Boolean);
                           return (
                             <div key={ev.id} className="w-full bg-slate-800 p-3 rounded-lg border border-cyan-500 my-2 flex flex-col gap-2 z-30 max-w-md mx-auto shadow-lg">
                               <div className="text-cyan-400 font-bold text-xs mb-1">Golü Düzenle ({ev.team === 'A' ? selectedMatch.teamAName : selectedMatch.teamBName})</div>
@@ -1386,7 +1412,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
 
                    {!ratingsAreClosed && myTeam && (
                      <div className="text-xs text-cyan-400 mb-4 bg-cyan-900/20 p-2 rounded border border-cyan-800">
-                       Bilgi: Kendi takımın ve karşı takım için 1-10 arası puan girebilirsin. Kendine puan veremezsin. Puanı silmek istersen kutucuğu boş bırakabilirsin.
+                       Bilgi: Kendi takımın ve karşı takım için 1-10 arası puan girebilirsin. Puanı silmek istersen kutucuğu boş bırakabilirsin.
                      </div>
                    )}
                    {ratingsAreClosed && (
@@ -1399,7 +1425,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-3 border-r border-slate-700 pr-4">
                         <div className="text-blue-400 font-bold text-sm mb-2">{selectedMatch.teamAName}</div>
-                        {selectedMatch.teamA.map(p => {
+                        {(selectedMatch.teamA || []).map(p => {
                           const avg = getAverageRating(p.playerId);
                           const myRating = selectedMatch.ratings?.[p.playerId]?.[currentUserData.id] || '';
                           const canRate = canRatePlayer(p.playerId);
@@ -1430,7 +1456,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                       
                       <div className="space-y-3 pl-4">
                         <div className="text-pink-400 font-bold text-sm mb-2">{selectedMatch.teamBName}</div>
-                        {selectedMatch.teamB.map(p => {
+                        {(selectedMatch.teamB || []).map(p => {
                            const avg = getAverageRating(p.playerId);
                            const myRating = selectedMatch.ratings?.[p.playerId]?.[currentUserData.id] || '';
                            const canRate = canRatePlayer(p.playerId);
@@ -1491,7 +1517,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
 const GoalForm = ({ team, match, players, onAddGoal }) => {
   const [scorer, setScorer] = useState('');
   const [assist, setAssist] = useState('');
-  const teamPlayers = match[`team${team}`].map(tp => players.find(p => p.id === tp.playerId)).filter(Boolean);
+  const teamPlayers = (match[`team${team}`] || []).map(tp => players.find(p => p.id === tp.playerId)).filter(Boolean);
 
   const submit = () => {
     if(!scorer) return;
@@ -1525,7 +1551,7 @@ const GoalForm = ({ team, match, players, onAddGoal }) => {
 
 
 // ==========================================
-// 4. İSTATİSTİKLER SEKRESİ
+// 5. İSTATİSTİKLER SEKRESİ
 // ==========================================
 function StatsTab({ players, matches, setEnlargedImage }) {
   const [selectedPlayerForStats, setSelectedPlayerForStats] = useState(null);
@@ -1534,7 +1560,7 @@ function StatsTab({ players, matches, setEnlargedImage }) {
   const totalMatches = completedMatches.length;
   let totalGoals = 0;
 
-  completedMatches.forEach(m => { totalGoals += m.scoreA + m.scoreB; });
+  completedMatches.forEach(m => { totalGoals += (m.scoreA || 0) + (m.scoreB || 0); });
 
   const statsMap = getPlayerStatsMap(players, matches);
   const statsArray = Object.values(statsMap).filter(s => s.matches > 0);
@@ -1746,14 +1772,14 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
 
   const toggleRatingStatus = async (matchId, currentStatus) => {
     const m = matches.find(x => x.id === matchId);
-    const pList = [...m.teamA, ...m.teamB].map(p => p.playerId);
+    const pList = [...(m.teamA || []), ...(m.teamB || [])].map(p => p.playerId);
 
     if (currentStatus) {
         await updateDoc(doc(dbPath('matches'), matchId), { ratingsClosed: false, forceOpen: true });
-        if(settings?.autoRatingStart) await sendNotification("Maç oylaması yeniden açılmıştır", `${m.teamAName} vs ${m.teamBName} maçı için oylama tekrar başlatıldı.`, pList);
+        if(settings?.autoRatingStart && sendNotification) await sendNotification("Maç oylaması yeniden açılmıştır", `${m.teamAName} vs ${m.teamBName} maçı için oylama tekrar başlatıldı.`, pList);
     } else {
         await updateDoc(doc(dbPath('matches'), matchId), { ratingsClosed: true, forceOpen: false });
-        if(settings?.autoRatingEnd) await sendNotification("Oylama Tamamlanmıştır", `${m.teamAName} vs ${m.teamBName} maçının oylaması admin tarafından manuel olarak tamamlanmıştır.`, pList);
+        if(settings?.autoRatingEnd && sendNotification) await sendNotification("Oylama Tamamlanmıştır", `${m.teamAName} vs ${m.teamBName} maçının oylaması admin tarafından manuel olarak tamamlanmıştır.`, pList);
     }
   };
 
@@ -1767,8 +1793,10 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
         setNotifMsg({type: 'error', text: 'Başlık ve Mesaj boş olamaz.'});
         setTimeout(()=>setNotifMsg(null), 3000); return;
      }
-     await sendNotification(customTitle, customMsg, customTarget === 'all' ? 'all' : [customTarget]);
-     setNotifMsg({type: 'success', text: 'Bildirim başarıyla gönderildi!'});
+     if (sendNotification) {
+         await sendNotification(customTitle, customMsg, customTarget === 'all' ? 'all' : [customTarget]);
+         setNotifMsg({type: 'success', text: 'Bildirim başarıyla gönderildi!'});
+     }
      setCustomTitle(''); setCustomMsg('');
      setTimeout(()=>setNotifMsg(null), 3000);
   };
@@ -1839,7 +1867,7 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
                             <td className="p-3 text-cyan-400 font-bold text-center text-lg">{p.number || '-'}</td>
                             <td className="p-3">
                                 <div className="font-bold text-white flex items-center gap-2">
-                                  {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(p.avatar); }} />}
+                                  {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage && setEnlargedImage(p.avatar); }} />}
                                   {p.firstName} {p.lastName}
                                 </div>
                                 <div className="text-[10px] text-slate-500 mt-1">ID: <span className="text-cyan-500">{p.id}</span> {p.username && <span className="ml-1 text-blue-300">@{p.username}</span>}</div>
@@ -1899,15 +1927,15 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
                            {/* Team A Admin View */}
                            <div className="space-y-4 border-r border-slate-700 pr-4">
                              <h4 className="font-bold text-blue-400 text-center bg-blue-900/20 py-2 rounded">{selectedMatch.teamAName}</h4>
-                             {selectedMatch.teamA.map(p => {
+                             {(selectedMatch.teamA || []).map(p => {
                                 const ratingData = getTrimmedRatingData(selectedMatch.ratings?.[p.playerId], p.playerId, bannedRatersForAdminMatch);
-                                const allMatchPlayers = [...selectedMatch.teamA, ...selectedMatch.teamB];
+                                const allMatchPlayers = [...(selectedMatch.teamA || []), ...(selectedMatch.teamB || [])];
                                 const playerInfo = players.find(x => x.id === p.playerId);
 
                                 return (
                                    <div key={p.playerId} className="bg-slate-900 p-3 rounded border border-slate-700">
                                       <div className="font-bold text-sm mb-3 border-b border-slate-700/50 pb-1 text-white flex items-center gap-2">
-                                          {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(playerInfo.avatar); }}/>}
+                                          {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage && setEnlargedImage(playerInfo.avatar); }}/>}
                                           {getPlayerName(p.playerId)}
                                       </div>
                                       <div className="space-y-1.5">
@@ -1945,15 +1973,15 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
                            {/* Team B Admin View */}
                            <div className="space-y-4 pl-4">
                              <h4 className="font-bold text-pink-400 text-center bg-pink-900/20 py-2 rounded">{selectedMatch.teamBName}</h4>
-                             {selectedMatch.teamB.map(p => {
+                             {(selectedMatch.teamB || []).map(p => {
                                 const ratingData = getTrimmedRatingData(selectedMatch.ratings?.[p.playerId], p.playerId, bannedRatersForAdminMatch);
-                                const allMatchPlayers = [...selectedMatch.teamA, ...selectedMatch.teamB];
+                                const allMatchPlayers = [...(selectedMatch.teamA || []), ...(selectedMatch.teamB || [])];
                                 const playerInfo = players.find(x => x.id === p.playerId);
 
                                 return (
                                    <div key={p.playerId} className="bg-slate-900 p-3 rounded border border-slate-700">
                                       <div className="font-bold text-sm mb-3 border-b border-slate-700/50 pb-1 text-white flex items-center gap-2">
-                                          {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(playerInfo.avatar); }}/>}
+                                          {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage && setEnlargedImage(playerInfo.avatar); }}/>}
                                           {getPlayerName(p.playerId)}
                                       </div>
                                       <div className="space-y-1.5">
