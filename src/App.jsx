@@ -197,19 +197,18 @@ export default function App() {
         
         if (permission === 'granted') {
           // DİKKAT: BURADAKİ KEY'İ KENDİ VAPID KEY'İNİZ İLE DEĞİŞTİRİN
-          const currentToken = await getToken(messaging, { vapidKey: "BNOnFq8MFh1cD-xgwW672tuIisx1FaOcQ0AIfMmMOAxEd3PpiQqeLIUxreI6e8hrGQpZaFFBCwo_zBqPnScXfgo" });
+          const currentToken = await getToken(messaging, { vapidKey: "BNOnFq8MFh1cD-xgwW672tuIisx1FaOcQ0AIfMmMOAxEd3PpiQqeLIUxreI6e8hrGQpZaFFBCwo_zBqPnScXfgoBNOnFq8MFh1cD-xgwW672tuIisx1FaOcQ0AIfMmMOAxEd3PpiQqeLIUxreI6e8hrGQpZaFFBCwo_zBqPnScXfgo" });
           if (currentToken) {
-            // Token'i kullanıcının dosyasına yaz (Böylece API kime atacağını bilsin)
+            // Token'i kullanıcının dosyasına yaz
             await updateDoc(doc(dbPath('players'), appUserId), { fcmToken: currentToken });
           }
         }
         
-        // Uygulama açıkken bildirim gelirse konsola yazdır veya küçük uyarı çıkar
         onMessage(messaging, (payload) => {
            console.log("Uygulama İçi Canlı Bildirim:", payload);
         });
       } catch (error) {
-        console.log('Push bildirim ayarlanamadı (Bu tarayıcı desteklemiyor olabilir):', error);
+        console.log('Push bildirim ayarlanamadı (Bu tarayıcı veya cihaz desteklemiyor olabilir):', error);
       }
     };
     setupPushNotifications();
@@ -233,15 +232,26 @@ export default function App() {
          }
 
          if (tokens.length > 0) {
-             // API'mize POST isteği atıyoruz
-             await fetch('/api/sendNotification', {
+             const response = await fetch('/api/sendNotification', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ title, body: message, tokens })
              });
+             
+             if (!response.ok) {
+                 const errData = await response.json();
+                 console.error("API Hatası:", errData);
+                 // Adminleri uyaralım
+                 if (currentUserData?.role === 'master_admin') {
+                     alert(`Push bildirimi API'ye ulaşamadı. Vercel loglarını kontrol edin.\nHata: ${errData.error || response.statusText}`);
+                 }
+             }
          }
       } catch (err) {
-         console.error("Push bildirim tetiklenemedi:", err);
+         console.error("Push bildirim fetch tetiklenemedi:", err);
+         if (currentUserData?.role === 'master_admin') {
+             alert(`API sunucusuna ulaşılamadı. Sunucuyu yerelde test ediyor olabilirsiniz veya Vercel'e henüz API yüklenmedi.`);
+         }
       }
   };
 
@@ -323,7 +333,7 @@ export default function App() {
           <div className="flex flex-col md:flex-row items-center justify-between py-4 relative">
             <div className="flex items-center gap-3 mb-4 md:mb-0">
               <div 
-                className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center border-2 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)] overflow-hidden cursor-pointer"
+                className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center border-2 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)] overflow-hidden cursor-pointer shrink-0"
                 onClick={() => currentUserData.avatar && setEnlargedImage(currentUserData.avatar)}
               >
                 {currentUserData.avatar ? <img src={currentUserData.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform" /> : <Star className="text-white w-6 h-6" fill="currentColor" />}
@@ -343,25 +353,25 @@ export default function App() {
               {isMasterAdmin && <NavButton active={activeTab === 'admin'} onClick={() => setActiveTab('admin')} icon={<Settings size={18} />} text="Ayarlar" /> }
             </nav>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center justify-end gap-3 w-full md:w-auto mt-2 md:mt-0">
               <div className="text-right hidden sm:block">
                 <div className="text-sm font-bold text-white">{currentUserData.firstName} {currentUserData.lastName}</div>
                 <div className="text-[10px] text-cyan-400 font-mono">@{currentUserData.username || currentUserData.id}</div>
               </div>
               
-              {/* BİLDİRİM ZİLİ */}
+              {/* BİLDİRİM ZİLİ (TAŞMA SORUNU ÇÖZÜLDÜ) */}
               <div className="relative">
-                <button onClick={() => setShowNotifMenu(!showNotifMenu)} className="relative p-2 text-slate-300 hover:text-white transition-colors bg-slate-900 rounded-full border border-slate-700">
+                <button onClick={() => setShowNotifMenu(!showNotifMenu)} className="relative p-2 text-slate-300 hover:text-white transition-colors bg-slate-900 rounded-full border border-slate-700 focus:outline-none">
                    <Bell size={18} />
                    {unreadCount > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] font-bold flex items-center justify-center text-white shadow-lg">{unreadCount}</span>}
                 </button>
                 
                 {/* BİLDİRİM AÇILIR MENÜSÜ */}
                 {showNotifMenu && (
-                   <div className="absolute right-0 mt-3 w-72 sm:w-80 max-h-96 bg-slate-800 border border-cyan-500/30 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] overflow-y-auto z-[100] flex flex-col">
+                   <div className="absolute right-[-10px] sm:right-0 mt-3 w-[290px] sm:w-80 max-h-[70vh] bg-slate-800 border border-cyan-500/30 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] overflow-y-auto z-[100] flex flex-col origin-top-right">
                       <div className="p-3 border-b border-slate-700 font-bold text-white sticky top-0 bg-slate-800 z-10 flex justify-between items-center shadow-md">
                         <span>Bildirimler</span>
-                        {unreadCount > 0 && <button onClick={markAllAsRead} className="text-[10px] text-cyan-400 hover:text-cyan-300 bg-cyan-900/30 px-2 py-1 rounded">Tümünü Okundu İşaretle</button>}
+                        {unreadCount > 0 && <button onClick={markAllAsRead} className="text-[10px] text-cyan-400 hover:text-cyan-300 bg-cyan-900/30 px-2 py-1 rounded transition-colors">Okundu İşaretle</button>}
                       </div>
                       {myNotifications.length === 0 ? (
                          <div className="p-6 text-center text-slate-500 text-sm flex flex-col items-center gap-2"><Bell size={24} className="opacity-30"/> Hiç bildiriminiz yok.</div>
@@ -374,7 +384,8 @@ export default function App() {
                                   <span className={`text-sm font-bold ${!isRead ? 'text-cyan-400' : 'text-slate-300'}`}>{n.title}</span>
                                   {!isRead && <span className="w-2 h-2 bg-cyan-400 rounded-full flex-shrink-0 mt-1 shadow-[0_0_5px_rgba(34,211,238,0.8)]"></span>}
                                 </div>
-                                <div className="text-xs text-slate-400 whitespace-pre-wrap">{n.message}</div>
+                                {/* Yazıların taşmaması için break-words ve whitespace-pre-wrap eklendi */}
+                                <div className="text-xs text-slate-400 whitespace-pre-wrap break-words">{n.message}</div>
                                 <div className="text-[9px] text-slate-500 mt-2 text-right">{new Date(n.createdAt).toLocaleString('tr-TR')}</div>
                              </div>
                            )
@@ -384,7 +395,7 @@ export default function App() {
                 )}
               </div>
 
-              <button onClick={handleLogout} className="bg-red-900/40 text-red-400 hover:bg-red-600 hover:text-white p-2 rounded-full transition-colors border border-red-500/30" title="Çıkış Yap"><LogOut size={18} /></button>
+              <button onClick={handleLogout} className="bg-red-900/40 text-red-400 hover:bg-red-600 hover:text-white p-2 rounded-full transition-colors border border-red-500/30 focus:outline-none" title="Çıkış Yap"><LogOut size={18} /></button>
             </div>
           </div>
         </div>
@@ -1013,7 +1024,6 @@ const PitchPlayer = ({ pp, players, onDragStart, teamColor, onUpdatePosition, on
   );
 };
 
-
 // ==========================================
 // 4. FİKSTÜR VE MAÇ YÖNETİMİ
 // ==========================================
@@ -1432,7 +1442,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                 {isAdmin && selectedMatch.status === 'active' && (
                   confirmEndMatchId === selectedMatch.id ? (
                     <div className="w-full bg-red-900/30 border border-red-500 p-4 rounded-lg mt-4 text-center transition-all">
-                      <p className="text-white font-bold mb-4">Maçı bitirmek istediğinize emin misiniz? (Puanlamalar kapatılır ve istatistikler işlenir.)</p>
+                      <p className="text-white font-bold mb-4">Maçı bitirmek istediğinize emin misiniz? Puanlamalar kapatılır ve istatistikler işlenir.</p>
                       <div className="flex justify-center gap-4">
                         <button onClick={() => updateMatchStatus(selectedMatch.id, 'completed')} className="bg-red-600 hover:bg-red-500 text-white px-6 py-2 rounded-lg font-bold shadow-lg">Evet, Bitir</button>
                         <button onClick={() => setConfirmEndMatchId(null)} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg font-bold">İptal</button>
