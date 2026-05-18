@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Users, LayoutTemplate, CalendarDays, Trophy, Trash2, Plus, Save, Play, Star, Goal, Edit, ShieldCheck, UserCheck, ShieldAlert, Shield, LogOut, KeyRound, Lock, Unlock, Settings, X, Check, User, Image as ImageIcon, Upload } from 'lucide-react';
+import { Users, LayoutTemplate, CalendarDays, Trophy, Trash2, Plus, Save, Play, Star, Goal, Edit, ShieldCheck, UserCheck, ShieldAlert, Shield, LogOut, KeyRound, Lock, Unlock, Settings, X, Check, User, Image as ImageIcon, Upload, Bell } from 'lucide-react';
 
-// --- FIREBASE BAĞLANTISI ---
+// --- FIREBASE BAĞLANTILARI ---
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC1fxFGB3JfH839cAW0MN_hvNtP5aS756c",
@@ -26,7 +27,7 @@ const dbPath = (colName) => collection(db, 'artifacts', appId, 'public', 'data',
 
 // --- YARDIMCI FONKSİYONLAR ---
 const generateId = () => Math.random().toString(36).substr(2, 9);
-const generatePlayerId = () => Math.floor(100000 + Math.random() * 900000).toString(); // 6 Haneli ID
+const generatePlayerId = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 const THEME = {
   bg: 'bg-slate-900',
@@ -41,127 +42,86 @@ const THEME = {
 // --- MAÇ PUANLAMA DURUMU (Otomatik Kapanma) ---
 const isRatingsClosedForMatch = (m) => {
   if (!m) return false;
-  if (m.ratingsClosed) return true; // Manuel kapatıldıysa
-  if (m.forceOpen) return false;    // Admin zorla açtıysa
-  
+  if (m.ratingsClosed) return true;
+  if (m.forceOpen) return false;
   if (m.date) {
-      // Türkiye Saati 12:00 -> UTC 09:00
       const deadline = new Date(`${m.date}T09:00:00Z`);
-      deadline.setDate(deadline.getDate() + 1); // Ertesi gün
+      deadline.setDate(deadline.getDate() + 1);
       if (new Date() > deadline) return true;
   }
   return false;
 };
 
-// --- YENİ KURAL: BOL KESEDEN PUAN VERENLERİ TESPİT ET (Ortalama > 9) ---
+// --- BOL KESEDEN PUAN VERENLERİ TESPİT ET (Ortalama > 9) ---
 const getBannedRaters = (ratingsObj) => {
   if (!ratingsObj) return [];
   const raterStats = {};
-  
-  // Kim kime kaç puan vermiş hesapla
   Object.entries(ratingsObj).forEach(([targetId, targetRatings]) => {
     Object.entries(targetRatings).forEach(([raterId, score]) => {
-      if (targetId === raterId) return; // Kendi oyu hariç
+      if (targetId === raterId) return;
       if (!raterStats[raterId]) raterStats[raterId] = { sum: 0, count: 0 };
       raterStats[raterId].sum += score;
       raterStats[raterId].count += 1;
     });
   });
-
-  // Ortalaması 9'dan büyük olanları listeye al
   return Object.entries(raterStats)
     .filter(([_, stats]) => stats.count > 0 && (stats.sum / stats.count) > 9)
     .map(([raterId]) => raterId);
 };
 
-// --- PUAN HESAPLAMA YARDIMCISI (Uç Değerleri Kırpar ve Banlıları Gizler) ---
+// --- PUAN HESAPLAMA YARDIMCISI ---
 const getTrimmedRatingData = (ratingsObj, targetPlayerId, bannedRaters = []) => {
   if (!ratingsObj) return { avg: null, excludedMinRater: null, excludedMaxRater: null };
-  
-  // Kendi kendine verilen puanları ve Banlı (Mavi) rater'ları dışla
   const entries = Object.entries(ratingsObj).filter(([raterId]) => raterId !== targetPlayerId && !bannedRaters.includes(raterId));
   if (entries.length === 0) return { avg: null, excludedMinRater: null, excludedMaxRater: null };
-  
-  // 3'ten az geçerli oy varsa kırpma yapma, normal ortalama al
   if (entries.length < 3) {
       const avg = entries.reduce((acc, [_, val]) => acc + val, 0) / entries.length;
       return { avg, excludedMinRater: null, excludedMaxRater: null };
   }
-
-  // Puanlara göre küçükten büyüğe sırala
   const sortedEntries = [...entries].sort((a, b) => a[1] - b[1]);
-  
-  // 1. En düşük puanı her zaman sil (sadece 1 tane)
   const excludedMinRater = sortedEntries[0][0];
-  
-  // Min silindikten sonra kalanlarla geçici ortalama hesapla
   let remaining = sortedEntries.slice(1);
   let tempAvg = remaining.reduce((acc, [_, val]) => acc + val, 0) / remaining.length;
-  
   let excludedMaxRater = null;
-  
-  // 2. En yüksek puan, bu geçici ortalamadan 2 puan fazlaysa onu da sil
   const highestEntry = sortedEntries[sortedEntries.length - 1];
   if (highestEntry[1] > tempAvg + 2) {
       excludedMaxRater = highestEntry[0];
       remaining = sortedEntries.slice(1, sortedEntries.length - 1);
       tempAvg = remaining.length > 0 ? (remaining.reduce((acc, [_, val]) => acc + val, 0) / remaining.length) : null;
   }
-
   return { avg: tempAvg, excludedMinRater, excludedMaxRater };
 };
 
-// --- BİREYSEL MAÇ PUANI HESAPLAYICI (+0.01 Gol/Asist Etkisi) ---
 const calcPlayerMatchRating = (match, playerId, bannedRaters = []) => {
   const ratingData = getTrimmedRatingData(match.ratings?.[playerId], playerId, bannedRaters);
   if (ratingData.avg === null) return null;
-
   let avg = ratingData.avg;
-
   const goals = match.events.filter(ev => ev.type === 'goal' && ev.scorerId === playerId).length;
   const assists = match.events.filter(ev => ev.type === 'goal' && ev.assistId === playerId).length;
-
-  // Gol ve Asist başına +0.01 ekle
   avg += (goals + assists) * 0.01;
-  
   return Math.max(1, Math.min(10, avg));
 };
 
-// Genel İstatistik Hesaplayıcı
 const getPlayerStatsMap = (players, matches) => {
   const completedMatches = [...matches].filter(m => m.status === 'completed').sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`));
   const statsMap = {};
-  
   players.forEach(p => { 
-    statsMap[p.id] = { 
-       id: p.id, name: `${p.firstName} ${p.lastName}`, avatar: p.avatar, number: p.number, 
-       matches: 0, goals: 0, assists: 0, wins: 0, draws: 0, losses: 0, 
-       ratingSum: 0, ratingCount: 0, matchHistory: [] 
-    }; 
+    statsMap[p.id] = { id: p.id, name: `${p.firstName} ${p.lastName}`, avatar: p.avatar, number: p.number, matches: 0, goals: 0, assists: 0, wins: 0, draws: 0, losses: 0, ratingSum: 0, ratingCount: 0, matchHistory: [] }; 
   });
 
   completedMatches.forEach(m => {
     const allPlayersInMatch = [...m.teamA, ...m.teamB, ...m.subs.map(id => ({playerId: id}))];
     const bannedRaters = getBannedRaters(m.ratings);
-    
     allPlayersInMatch.forEach(pObj => {
       const stat = statsMap[pObj.playerId];
       if(stat) {
         stat.matches += 1;
-        
-        // Galibiyet, Beraberlik, Mağlubiyet hesapla
         const isTeamA = m.teamA.some(p => p.playerId === pObj.playerId);
         const isTeamB = m.teamB.some(p => p.playerId === pObj.playerId);
-        
-        if (m.scoreA === m.scoreB) {
-            stat.draws++;
-        } else if ((isTeamA && m.scoreA > m.scoreB) || (isTeamB && m.scoreB > m.scoreA)) {
-            stat.wins++;
-        } else {
-            stat.losses++;
-        }
+        if (m.scoreA === m.scoreB) stat.draws++;
+        else if ((isTeamA && m.scoreA > m.scoreB) || (isTeamB && m.scoreB > m.scoreA)) stat.wins++;
+        else stat.losses++;
 
-        // Puan hesaplaması (Kapanmışsa)
         if (isRatingsClosedForMatch(m)) {
           const finalRating = calcPlayerMatchRating(m, pObj.playerId, bannedRaters);
           if (finalRating !== null) {
@@ -181,10 +141,7 @@ const getPlayerStatsMap = (players, matches) => {
     });
   });
 
-  Object.values(statsMap).forEach(s => {
-    s.avgRating = s.ratingCount > 0 ? (s.ratingSum / s.ratingCount).toFixed(2) : 0;
-  });
-
+  Object.values(statsMap).forEach(s => { s.avgRating = s.ratingCount > 0 ? (s.ratingSum / s.ratingCount).toFixed(2) : 0; });
   return statsMap;
 };
 
@@ -193,12 +150,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('profilim');
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [enlargedImage, setEnlargedImage] = useState(null); // GÖRSEL BÜYÜTME STATE'İ
+  const [enlargedImage, setEnlargedImage] = useState(null);
+  const [showNotifMenu, setShowNotifMenu] = useState(false);
   
   const [appUserId, setAppUserId] = useState(localStorage.getItem('halisaha_userId') || null);
   
   const [players, setPlayers] = useState([]);
   const [matches, setMatches] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [settings, setSettings] = useState({ autoMatch: true, autoRatingStart: true, autoRatingEnd: true });
 
   useEffect(() => {
     const initAuth = async () => {
@@ -213,12 +173,94 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // VERİTABANINI DİNLE
   useEffect(() => {
     if (!firebaseUser) return;
     const unsubPlayers = onSnapshot(dbPath('players'), (snap) => setPlayers(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     const unsubMatches = onSnapshot(dbPath('matches'), (snap) => setMatches(snap.docs.map(d => ({id: d.id, ...d.data()}))));
-    return () => { unsubPlayers(); unsubMatches(); };
+    const unsubNotifs = onSnapshot(dbPath('notifications'), (snap) => setNotifications(snap.docs.map(d => ({id: d.id, ...d.data()}))));
+    const unsubSettings = onSnapshot(doc(dbPath('settings'), 'general'), (docSnap) => {
+      if(docSnap.exists()) setSettings(docSnap.data());
+      else setDoc(doc(dbPath('settings'), 'general'), { autoMatch: true, autoRatingStart: true, autoRatingEnd: true });
+    });
+
+    return () => { unsubPlayers(); unsubMatches(); unsubNotifs(); unsubSettings(); };
   }, [firebaseUser]);
+
+  // PUSH BİLDİRİM İZNİ VE TOKEN ALMA (TELEFONA BİLDİRİM)
+  useEffect(() => {
+    const setupPushNotifications = async () => {
+      if (!appUserId) return;
+      try {
+        const messaging = getMessaging(app);
+        const permission = await Notification.requestPermission();
+        
+        if (permission === 'granted') {
+          // DİKKAT: BURADAKİ KEY'İ KENDİ VAPID KEY'İNİZ İLE DEĞİŞTİRİN
+          const currentToken = await getToken(messaging, { vapidKey: "BNOnFq8MFh1cD-xgwW672tuIisx1FaOcQ0AIfMmMOAxEd3PpiQqeLIUxreI6e8hrGQpZaFFBCwo_zBqPnScXfgo" });
+          if (currentToken) {
+            // Token'i kullanıcının dosyasına yaz (Böylece API kime atacağını bilsin)
+            await updateDoc(doc(dbPath('players'), appUserId), { fcmToken: currentToken });
+          }
+        }
+        
+        // Uygulama açıkken bildirim gelirse konsola yazdır veya küçük uyarı çıkar
+        onMessage(messaging, (payload) => {
+           console.log("Uygulama İçi Canlı Bildirim:", payload);
+        });
+      } catch (error) {
+        console.log('Push bildirim ayarlanamadı (Bu tarayıcı desteklemiyor olabilir):', error);
+      }
+    };
+    setupPushNotifications();
+  }, [appUserId]);
+
+  // BİLDİRİM GÖNDERME FONKSİYONU (HEM UYGULAMA İÇİ HEM PUSH)
+  const sendNotification = async (title, message, targetUsers) => {
+      // 1. Uygulama İçi (Zil) Bildirimi Kaydet
+      const notifId = generateId();
+      await setDoc(doc(dbPath('notifications'), notifId), {
+          id: notifId, title, message, targetUsers, createdAt: Date.now(), readBy: []
+      });
+
+      // 2. Telefonlara Push Bildirim Gönder (Vercel API Tetikleyicisi)
+      try {
+         let tokens = [];
+         if (targetUsers === 'all') {
+             tokens = players.map(p => p.fcmToken).filter(Boolean);
+         } else {
+             tokens = players.filter(p => targetUsers.includes(p.id)).map(p => p.fcmToken).filter(Boolean);
+         }
+
+         if (tokens.length > 0) {
+             // API'mize POST isteği atıyoruz
+             await fetch('/api/sendNotification', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, body: message, tokens })
+             });
+         }
+      } catch (err) {
+         console.error("Push bildirim tetiklenemedi:", err);
+      }
+  };
+
+  const markAsRead = async (notifId) => {
+      const notif = notifications.find(n => n.id === notifId);
+      if (!notif) return;
+      if (!notif.readBy.includes(appUserId)) {
+          await updateDoc(doc(dbPath('notifications'), notifId), { readBy: [...notif.readBy, appUserId] });
+      }
+  };
+
+  const markAllAsRead = async () => {
+      const myNotifs = notifications.filter(n => n.targetUsers === 'all' || n.targetUsers.includes(appUserId));
+      myNotifs.forEach(async (n) => {
+          if (!n.readBy.includes(appUserId)) {
+             await updateDoc(doc(dbPath('notifications'), n.id), { readBy: [...n.readBy, appUserId] });
+          }
+      });
+  };
 
   if (authLoading) return <div className={`min-h-screen ${THEME.bg} flex items-center justify-center text-cyan-400`}><Star className="animate-spin w-12 h-12" /></div>;
 
@@ -254,17 +296,19 @@ export default function App() {
     switch (activeTab) {
       case 'profilim': return <ProfileTab currentUserData={currentUserData} players={players} matches={matches} setEnlargedImage={setEnlargedImage} />;
       case 'oyuncular': return <PlayersTab players={players} matches={matches} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} setEnlargedImage={setEnlargedImage} />;
-      case 'kadro': return isAdmin ? <SquadTab players={players} matches={matches} setEnlargedImage={setEnlargedImage} /> : null;
-      case 'fikstur': return <FixturesTab matches={matches} players={players} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} setEnlargedImage={setEnlargedImage} />;
+      case 'kadro': return isAdmin ? <SquadTab players={players} matches={matches} setEnlargedImage={setEnlargedImage} settings={settings} sendNotification={sendNotification} /> : null;
+      case 'fikstur': return <FixturesTab matches={matches} players={players} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} setEnlargedImage={setEnlargedImage} settings={settings} sendNotification={sendNotification} />;
       case 'istatistik': return <StatsTab players={players} matches={matches} setEnlargedImage={setEnlargedImage} />;
-      case 'admin': return isMasterAdmin ? <AdminSettingsTab players={players} matches={matches} currentUserData={currentUserData} setEnlargedImage={setEnlargedImage} /> : null;
+      case 'admin': return isMasterAdmin ? <AdminSettingsTab players={players} matches={matches} currentUserData={currentUserData} setEnlargedImage={setEnlargedImage} settings={settings} sendNotification={sendNotification} /> : null;
       default: return null;
     }
   };
 
+  const myNotifications = notifications.filter(n => n.targetUsers === 'all' || n.targetUsers.includes(currentUserData.id)).sort((a,b) => b.createdAt - a.createdAt);
+  const unreadCount = myNotifications.filter(n => !n.readBy.includes(currentUserData.id)).length;
+
   return (
     <div className={`min-h-screen ${THEME.bg} ${THEME.text} font-sans`}>
-      {/* GLOBAL RESİM BÜYÜTME MODALI */}
       {enlargedImage && (
         <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[200] p-4 cursor-pointer" onClick={() => setEnlargedImage(null)}>
           <div className="relative max-w-3xl max-h-[90vh] w-full flex items-center justify-center">
@@ -276,7 +320,7 @@ export default function App() {
 
       <header className="bg-slate-950 border-b border-blue-900 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4">
-          <div className="flex flex-col md:flex-row items-center justify-between py-4">
+          <div className="flex flex-col md:flex-row items-center justify-between py-4 relative">
             <div className="flex items-center gap-3 mb-4 md:mb-0">
               <div 
                 className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center border-2 border-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)] overflow-hidden cursor-pointer"
@@ -296,7 +340,7 @@ export default function App() {
               {isAdmin && <NavButton active={activeTab === 'kadro'} onClick={() => setActiveTab('kadro')} icon={<LayoutTemplate size={18} />} text="Kadro Kur" /> }
               <NavButton active={activeTab === 'fikstur'} onClick={() => setActiveTab('fikstur')} icon={<CalendarDays size={18} />} text="Fikstür" />
               <NavButton active={activeTab === 'istatistik'} onClick={() => setActiveTab('istatistik')} icon={<Trophy size={18} />} text="İstatistikler" />
-              {isMasterAdmin && <NavButton active={activeTab === 'admin'} onClick={() => setActiveTab('admin')} icon={<Settings size={18} />} text="Admin Ayarları" /> }
+              {isMasterAdmin && <NavButton active={activeTab === 'admin'} onClick={() => setActiveTab('admin')} icon={<Settings size={18} />} text="Ayarlar" /> }
             </nav>
 
             <div className="flex items-center gap-4">
@@ -304,12 +348,48 @@ export default function App() {
                 <div className="text-sm font-bold text-white">{currentUserData.firstName} {currentUserData.lastName}</div>
                 <div className="text-[10px] text-cyan-400 font-mono">@{currentUserData.username || currentUserData.id}</div>
               </div>
-              <button onClick={handleLogout} className="bg-red-900/40 text-red-400 hover:bg-red-600 hover:text-white p-2 rounded-lg transition-colors border border-red-500/30" title="Çıkış Yap"><LogOut size={18} /></button>
+              
+              {/* BİLDİRİM ZİLİ */}
+              <div className="relative">
+                <button onClick={() => setShowNotifMenu(!showNotifMenu)} className="relative p-2 text-slate-300 hover:text-white transition-colors bg-slate-900 rounded-full border border-slate-700">
+                   <Bell size={18} />
+                   {unreadCount > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] font-bold flex items-center justify-center text-white shadow-lg">{unreadCount}</span>}
+                </button>
+                
+                {/* BİLDİRİM AÇILIR MENÜSÜ */}
+                {showNotifMenu && (
+                   <div className="absolute right-0 mt-3 w-72 sm:w-80 max-h-96 bg-slate-800 border border-cyan-500/30 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.5)] overflow-y-auto z-[100] flex flex-col">
+                      <div className="p-3 border-b border-slate-700 font-bold text-white sticky top-0 bg-slate-800 z-10 flex justify-between items-center shadow-md">
+                        <span>Bildirimler</span>
+                        {unreadCount > 0 && <button onClick={markAllAsRead} className="text-[10px] text-cyan-400 hover:text-cyan-300 bg-cyan-900/30 px-2 py-1 rounded">Tümünü Okundu İşaretle</button>}
+                      </div>
+                      {myNotifications.length === 0 ? (
+                         <div className="p-6 text-center text-slate-500 text-sm flex flex-col items-center gap-2"><Bell size={24} className="opacity-30"/> Hiç bildiriminiz yok.</div>
+                      ) : (
+                         myNotifications.map(n => {
+                           const isRead = n.readBy.includes(appUserId);
+                           return (
+                             <div key={n.id} onClick={() => markAsRead(n.id)} className={`p-3 border-b border-slate-700/50 cursor-pointer hover:bg-slate-700 transition-colors ${!isRead ? 'bg-cyan-900/20' : ''}`}>
+                                <div className="flex justify-between items-start mb-1">
+                                  <span className={`text-sm font-bold ${!isRead ? 'text-cyan-400' : 'text-slate-300'}`}>{n.title}</span>
+                                  {!isRead && <span className="w-2 h-2 bg-cyan-400 rounded-full flex-shrink-0 mt-1 shadow-[0_0_5px_rgba(34,211,238,0.8)]"></span>}
+                                </div>
+                                <div className="text-xs text-slate-400 whitespace-pre-wrap">{n.message}</div>
+                                <div className="text-[9px] text-slate-500 mt-2 text-right">{new Date(n.createdAt).toLocaleString('tr-TR')}</div>
+                             </div>
+                           )
+                         })
+                      )}
+                   </div>
+                )}
+              </div>
+
+              <button onClick={handleLogout} className="bg-red-900/40 text-red-400 hover:bg-red-600 hover:text-white p-2 rounded-full transition-colors border border-red-500/30" title="Çıkış Yap"><LogOut size={18} /></button>
             </div>
           </div>
         </div>
       </header>
-      <main className="max-w-7xl mx-auto px-4 py-8">{renderTabContent()}</main>
+      <main className="max-w-7xl mx-auto px-4 py-8" onClick={() => setShowNotifMenu(false)}>{renderTabContent()}</main>
     </div>
   );
 }
@@ -320,7 +400,6 @@ const NavButton = ({ active, onClick, icon, text }) => (
   </button>
 );
 
-
 // ==========================================
 // 0. GİRİŞ YAP VE KAYIT OL EKRANI
 // ==========================================
@@ -329,77 +408,50 @@ function AuthScreen({ setAppUserId, players }) {
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [registeredId, setRegisteredId] = useState(null);
-
   const [loginId, setLoginId] = useState('');
   const [loginPass, setLoginPass] = useState('');
-
   const [regData, setRegData] = useState({ username: '', firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '', passwordConfirm: '' });
 
   const usedNumbers = players.map(p => Number(p.number));
   const availableNumbers = Array.from({length: 99}, (_, i) => i + 1);
 
-  const showNotif = (type, text) => {
-    setNotification({ type, text });
-    setTimeout(() => setNotification(null), 5000);
-  };
+  const showNotif = (type, text) => { setNotification({ type, text }); setTimeout(() => setNotification(null), 5000); };
 
   const handleLogin = (e) => {
     e.preventDefault();
     if (!loginId || !loginPass) return;
     const loginQuery = loginId.trim().toLowerCase();
-    
-    const user = players.find(p => 
-      (p.id.toLowerCase() === loginQuery || (p.username && p.username.toLowerCase() === loginQuery)) && 
-      p.password === loginPass
-    );
-
-    if (user) {
-      localStorage.setItem('halisaha_userId', user.id);
-      setAppUserId(user.id);
-    } else {
-      showNotif('error', "Bilgiler veya Şifre hatalı!");
-    }
+    const user = players.find(p => (p.id.toLowerCase() === loginQuery || (p.username && p.username.toLowerCase() === loginQuery)) && p.password === loginPass);
+    if (user) { localStorage.setItem('halisaha_userId', user.id); setAppUserId(user.id); } 
+    else { showNotif('error', "Bilgiler veya Şifre hatalı!"); }
   };
 
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!regData.firstName || !regData.number || !regData.position || !regData.password) return;
-    
     if (regData.username) {
       const usernameNorm = regData.username.trim().toLowerCase();
       if (players.some(p => p.username && p.username.toLowerCase() === usernameNorm)) {
-        showNotif('error', 'Bu kullanıcı adı zaten alınmış!');
-        return;
+        showNotif('error', 'Bu kullanıcı adı zaten alınmış!'); return;
       }
     }
-
-    if (regData.password !== regData.passwordConfirm) {
-      showNotif('error', 'Şifreler eşleşmiyor! Lütfen iki şifreyi de aynı giriniz.');
-      return;
-    }
+    if (regData.password !== regData.passwordConfirm) { showNotif('error', 'Şifreler eşleşmiyor! Lütfen iki şifreyi de aynı giriniz.'); return; }
     
     setIsSubmitting(true);
     const isFirstUser = players.length === 0;
-
-    let newId;
-    do { newId = generatePlayerId(); } while (players.some(p => p.id === newId));
+    let newId; do { newId = generatePlayerId(); } while (players.some(p => p.id === newId));
 
     const { passwordConfirm, ...dbData } = regData;
     dbData.username = dbData.username.trim();
 
     const newUserDoc = { ...dbData, id: newId, role: isFirstUser ? 'master_admin' : 'user', status: isFirstUser ? 'approved' : 'pending', isActive: true, registeredAt: Date.now() };
-
     await setDoc(doc(dbPath('players'), newId), newUserDoc);
     
     setRegData({ username: '', firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '', passwordConfirm: '' });
     setIsSubmitting(false);
 
-    if (isFirstUser) {
-      localStorage.setItem('halisaha_userId', newId);
-      setAppUserId(newId);
-    } else {
-      setRegisteredId(newId);
-    }
+    if (isFirstUser) { localStorage.setItem('halisaha_userId', newId); setAppUserId(newId); } 
+    else { setRegisteredId(newId); }
   };
 
   if (registeredId) {
@@ -414,12 +466,9 @@ function AuthScreen({ setAppUserId, players }) {
                <div className="text-5xl font-black font-mono text-white tracking-widest">{registeredId}</div>
             </div>
             <div className="bg-red-900/40 border border-red-500/50 text-red-300 p-3 rounded-lg text-sm font-bold mb-6 flex flex-col gap-1 items-center">
-               <ShieldAlert size={20}/>
-               LÜTFEN ID NUMARANIZI NOT EDİNİZ!
+               <ShieldAlert size={20}/>LÜTFEN ID NUMARANIZI NOT EDİNİZ!
             </div>
-            <button onClick={() => {setRegisteredId(null); setIsLogin(true);}} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition-colors">
-              Giriş Ekranına Dön
-            </button>
+            <button onClick={() => {setRegisteredId(null); setIsLogin(true);}} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-lg transition-colors">Giriş Ekranına Dön</button>
          </div>
       </div>
     );
@@ -429,23 +478,14 @@ function AuthScreen({ setAppUserId, players }) {
     <div className={`min-h-screen ${THEME.bg} ${THEME.text} flex items-center justify-center p-4`}>
       <div className={`${THEME.panel} p-8 rounded-2xl border ${THEME.border} max-w-md w-full shadow-2xl`}>
         <div className="text-center mb-8">
-           <div className="w-16 h-16 mx-auto rounded-full bg-blue-900 flex items-center justify-center border-2 border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.5)] mb-4">
-             <Trophy className="text-white w-8 h-8" />
-           </div>
+           <div className="w-16 h-16 mx-auto rounded-full bg-blue-900 flex items-center justify-center border-2 border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.5)] mb-4"><Trophy className="text-white w-8 h-8" /></div>
            <h2 className="text-2xl font-black">Champions Arena</h2>
         </div>
-
         <div className="flex rounded-lg bg-slate-900 p-1 mb-6 border border-slate-700">
           <button onClick={() => setIsLogin(true)} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${isLogin ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>Giriş Yap</button>
           <button onClick={() => setIsLogin(false)} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${!isLogin ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>Kayıt Ol</button>
         </div>
-
-        {notification && (
-          <div className={`p-3 rounded-lg text-sm text-center mb-4 border ${notification.type === 'error' ? 'bg-red-900/50 text-red-400 border-red-500/50' : 'bg-green-900/50 text-green-400 border-green-500/50'}`}>
-            {notification.text}
-          </div>
-        )}
-
+        {notification && <div className={`p-3 rounded-lg text-sm text-center mb-4 border ${notification.type === 'error' ? 'bg-red-900/50 text-red-400 border-red-500/50' : 'bg-green-900/50 text-green-400 border-green-500/50'}`}>{notification.text}</div>}
         {isLogin ? (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
@@ -456,53 +496,28 @@ function AuthScreen({ setAppUserId, players }) {
               <label className="block text-xs text-slate-400 mb-1">Şifre</label>
               <input required type="password" className="w-full bg-slate-900 border border-slate-700 rounded-lg p-3 text-white outline-none focus:border-cyan-400" value={loginPass} onChange={e => setLoginPass(e.target.value)} placeholder="••••••" />
             </div>
-            <button type="submit" className="w-full mt-2 py-3 rounded-lg font-bold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-lg transition-all flex justify-center items-center gap-2">
-              <KeyRound size={18} /> Sisteme Giriş
-            </button>
+            <button type="submit" className="w-full mt-2 py-3 rounded-lg font-bold bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-lg transition-all flex justify-center items-center gap-2"><KeyRound size={18} /> Sisteme Giriş</button>
           </form>
         ) : (
           <form onSubmit={handleRegister} className="space-y-4">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Kullanıcı Adı (İsteğe Bağlı)</label>
-              <input type="text" placeholder="Giriş yaparken kullanabilirsiniz" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.username} onChange={e => setRegData({...regData, username: e.target.value})} />
-            </div>
+            <div><label className="block text-xs text-slate-400 mb-1">Kullanıcı Adı (İsteğe Bağlı)</label><input type="text" placeholder="Giriş yaparken kullanabilirsiniz" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.username} onChange={e => setRegData({...regData, username: e.target.value})} /></div>
             <div className="grid grid-cols-2 gap-4">
               <div><label className="block text-xs text-slate-400 mb-1">Ad <span className="text-red-500">*</span></label><input required type="text" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.firstName} onChange={e => setRegData({...regData, firstName: e.target.value})} /></div>
               <div><label className="block text-xs text-slate-400 mb-1">Soyad</label><input type="text" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.lastName} onChange={e => setRegData({...regData, lastName: e.target.value})} /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Forma No <span className="text-red-500">*</span></label>
-                <select required className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.number} onChange={e => setRegData({...regData, number: e.target.value})}>
-                  <option value="">Seç...</option>
-                  {availableNumbers.map(num => <option key={num} value={num} disabled={usedNumbers.includes(num)}>{num} {usedNumbers.includes(num) ? '(Dolu)' : ''}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Pozisyon <span className="text-red-500">*</span></label>
-                <select required className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.position} onChange={e => setRegData({...regData, position: e.target.value})}>
-                  <option>Kaleci</option><option>Defans</option><option>Orta Saha</option><option>Forvet</option>
-                </select>
-              </div>
+              <div><label className="block text-xs text-slate-400 mb-1">Forma No <span className="text-red-500">*</span></label><select required className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.number} onChange={e => setRegData({...regData, number: e.target.value})}><option value="">Seç...</option>{availableNumbers.map(num => <option key={num} value={num} disabled={usedNumbers.includes(num)}>{num} {usedNumbers.includes(num) ? '(Dolu)' : ''}</option>)}</select></div>
+              <div><label className="block text-xs text-slate-400 mb-1">Pozisyon <span className="text-red-500">*</span></label><select required className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.position} onChange={e => setRegData({...regData, position: e.target.value})}><option>Kaleci</option><option>Defans</option><option>Orta Saha</option><option>Forvet</option></select></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div><label className="block text-xs text-slate-400 mb-1">Telefon No</label><input type="tel" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.phone} onChange={e => setRegData({...regData, phone: e.target.value})} /></div>
               <div><label className="block text-xs text-slate-400 mb-1">Ekip/Grup</label><input type="text" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.group} onChange={e => setRegData({...regData, group: e.target.value})} /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Şifre Belirle <span className="text-red-500">*</span></label>
-                <input required type="password" placeholder="Şifre" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.password} onChange={e => setRegData({...regData, password: e.target.value})} />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Şifre Tekrar <span className="text-red-500">*</span></label>
-                <input required type="password" placeholder="Şifre Tekrar" className={`w-full bg-slate-900 border rounded p-2 text-white outline-none focus:border-cyan-400 ${regData.passwordConfirm && regData.password !== regData.passwordConfirm ? 'border-red-500' : 'border-slate-700'}`} value={regData.passwordConfirm} onChange={e => setRegData({...regData, passwordConfirm: e.target.value})} />
-              </div>
+              <div><label className="block text-xs text-slate-400 mb-1">Şifre Belirle <span className="text-red-500">*</span></label><input required type="password" placeholder="Şifre" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={regData.password} onChange={e => setRegData({...regData, password: e.target.value})} /></div>
+              <div><label className="block text-xs text-slate-400 mb-1">Şifre Tekrar <span className="text-red-500">*</span></label><input required type="password" placeholder="Şifre Tekrar" className={`w-full bg-slate-900 border rounded p-2 text-white outline-none focus:border-cyan-400 ${regData.passwordConfirm && regData.password !== regData.passwordConfirm ? 'border-red-500' : 'border-slate-700'}`} value={regData.passwordConfirm} onChange={e => setRegData({...regData, passwordConfirm: e.target.value})} /></div>
             </div>
-            <button type="submit" disabled={isSubmitting} className={`w-full mt-4 py-3 rounded-lg font-bold transition-all flex justify-center items-center gap-2 ${isSubmitting ? 'bg-slate-700 text-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-lg'}`}>
-              {isSubmitting ? <Star className="animate-spin" size={18} /> : null}
-              {isSubmitting ? 'İşleniyor...' : 'Üye Ol ve Onaya Gönder'}
-            </button>
+            <button type="submit" disabled={isSubmitting} className={`w-full mt-4 py-3 rounded-lg font-bold transition-all flex justify-center items-center gap-2 ${isSubmitting ? 'bg-slate-700 text-slate-400 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white shadow-lg'}`}>{isSubmitting ? <Star className="animate-spin" size={18} /> : null}{isSubmitting ? 'İşleniyor...' : 'Üye Ol ve Onaya Gönder'}</button>
           </form>
         )}
       </div>
@@ -523,16 +538,11 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
   const statsMap = getPlayerStatsMap(players, matches);
   const myStats = statsMap[currentUserData.id] || { matches: 0, goals: 0, assists: 0, avgRating: '-' };
 
-  const showMessage = (type, text) => {
-    setMsg({ type, text });
-    setTimeout(() => setMsg(null), 4000);
-  };
+  const showMessage = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); };
 
   const saveUsername = async () => {
     const usernameNorm = usernameInput.trim().toLowerCase();
-    if (usernameNorm && players.some(p => p.username?.toLowerCase() === usernameNorm && p.id !== currentUserData.id)) {
-      return showMessage('error', 'Bu kullanıcı adı zaten kullanılıyor!');
-    }
+    if (usernameNorm && players.some(p => p.username?.toLowerCase() === usernameNorm && p.id !== currentUserData.id)) return showMessage('error', 'Bu kullanıcı adı zaten kullanılıyor!');
     await updateDoc(doc(dbPath('players'), currentUserData.id), { username: usernameInput.trim() });
     showMessage('success', 'Kullanıcı adı güncellendi!');
   };
@@ -560,32 +570,18 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
        const img = new Image();
        img.onload = () => {
           const canvas = document.createElement('canvas');
           const MAX_SIZE = 250; 
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > MAX_SIZE) {
-              height *= MAX_SIZE / width;
-              width = MAX_SIZE;
-            }
-          } else {
-            if (height > MAX_SIZE) {
-              width *= MAX_SIZE / height;
-              height = MAX_SIZE;
-            }
-          }
-          canvas.width = width;
-          canvas.height = height;
+          let width = img.width; let height = img.height;
+          if (width > height) { if (width > MAX_SIZE) { height *= MAX_SIZE / width; width = MAX_SIZE; } } 
+          else { if (height > MAX_SIZE) { width *= MAX_SIZE / height; height = MAX_SIZE; } }
+          canvas.width = width; canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
-          
           const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
           setAvatarInput(dataUrl);
        };
@@ -599,10 +595,7 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
       {msg && <div className={`p-4 rounded-lg font-bold border shadow-lg transition-all text-center ${msg.type === 'error' ? 'bg-red-900/50 text-red-400 border-red-500' : 'bg-green-900/50 text-green-400 border-green-500'}`}>{msg.text}</div>}
       
       <div className="bg-gradient-to-r from-slate-800 to-slate-900 border border-slate-700 p-6 rounded-xl flex flex-col md:flex-row items-center gap-6 shadow-lg">
-        <div 
-           className="w-20 h-20 rounded-full bg-blue-900/50 flex items-center justify-center border-2 border-cyan-500 overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.5)] shrink-0 cursor-pointer"
-           onClick={() => currentUserData.avatar && setEnlargedImage(currentUserData.avatar)}
-        >
+        <div className="w-20 h-20 rounded-full bg-blue-900/50 flex items-center justify-center border-2 border-cyan-500 overflow-hidden shadow-[0_0_15px_rgba(34,211,238,0.5)] shrink-0 cursor-pointer" onClick={() => currentUserData.avatar && setEnlargedImage(currentUserData.avatar)}>
            {currentUserData.avatar ? <img src={currentUserData.avatar} alt="profil" className="w-full h-full object-cover hover:scale-110 transition-transform" /> : <span className="text-3xl font-black text-cyan-400">{currentUserData.number}</span>}
         </div>
         <div className="flex-1 text-center md:text-left">
@@ -615,10 +608,7 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
         </div>
       </div>
 
-      <h2 className="text-xl font-bold border-b border-slate-700 pb-3 flex items-center gap-2">
-        <Trophy className={THEME.accent} /> Kariyer İstatistiklerin
-      </h2>
-      
+      <h2 className="text-xl font-bold border-b border-slate-700 pb-3 flex items-center gap-2"><Trophy className={THEME.accent} /> Kariyer İstatistiklerin</h2>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-gradient-to-br from-blue-900 to-slate-900 p-6 rounded-2xl border border-blue-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{myStats.matches}</div><div className="text-sm text-blue-300 font-semibold uppercase tracking-wider">Oynanan Maç</div></div>
         <div className="bg-gradient-to-br from-cyan-900 to-slate-900 p-6 rounded-2xl border border-cyan-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{myStats.goals}</div><div className="text-sm text-cyan-300 font-semibold uppercase tracking-wider">Attığın Gol</div></div>
@@ -627,76 +617,44 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mt-8">
-        
-        {/* Ayarlar Sol Sütun */}
         <div className="space-y-6">
             <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
                <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><User className="text-cyan-400" /> Kullanıcı Adı</h2>
                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
                   <label className="block text-xs text-slate-400 mb-2">Sisteme Giriş Adı</label>
                   <div className="flex gap-2">
-                      <div className="flex-1 flex items-center bg-slate-800 border border-slate-600 rounded px-2">
-                          <span className="text-slate-500">@</span>
-                          <input type="text" placeholder="kullaniciadi" className="w-full bg-transparent p-2 text-white outline-none focus:border-cyan-400 text-sm" value={usernameInput} onChange={e => setUsernameInput(e.target.value.replace(/\s+/g, ''))} />
-                      </div>
+                      <div className="flex-1 flex items-center bg-slate-800 border border-slate-600 rounded px-2"><span className="text-slate-500">@</span><input type="text" placeholder="kullaniciadi" className="w-full bg-transparent p-2 text-white outline-none focus:border-cyan-400 text-sm" value={usernameInput} onChange={e => setUsernameInput(e.target.value.replace(/\s+/g, ''))} /></div>
                       <button type="button" onClick={saveUsername} className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4 py-2 rounded text-sm transition-colors">Kaydet</button>
                   </div>
-                  <p className="text-[10px] text-slate-500 mt-2">Bu kullanıcı adını kullanarak 6 haneli ID numarasına ihtiyaç duymadan sisteme giriş yapabilirsiniz.</p>
                </div>
             </div>
-
             <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
                <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><ImageIcon className="text-cyan-400" /> Profil Fotoğrafı</h2>
                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
-                  <div className="flex justify-between items-end mb-2">
-                    <label className="block text-xs text-slate-400">Görsel Seç / Bağlantı Yapıştır</label>
-                  </div>
-                  
-                  {/* Dosya Yükleme Butonu */}
                   <div className="flex gap-2 mb-3 items-center">
                     <label className="bg-slate-700 hover:bg-slate-600 text-slate-300 px-4 py-2 rounded text-xs cursor-pointer font-bold transition-colors flex items-center gap-2">
-                       <Upload size={14}/> Galeriden Seç
-                       <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                       <Upload size={14}/> Galeriden Seç <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                     </label>
-                    <span className="text-xs text-slate-500 italic">veya bağlantı yazın:</span>
+                    <span className="text-xs text-slate-500 italic">veya bağlantı:</span>
                   </div>
-
                   <div className="flex gap-2">
-                      <input type="text" placeholder="https://ornek.com/foto.jpg" className="flex-1 bg-slate-800 border border-slate-600 rounded p-2 text-white outline-none focus:border-cyan-400 text-sm truncate" value={avatarInput} onChange={e => setAvatarInput(e.target.value)} />
+                      <input type="text" placeholder="URL..." className="flex-1 bg-slate-800 border border-slate-600 rounded p-2 text-white outline-none focus:border-cyan-400 text-sm truncate" value={avatarInput} onChange={e => setAvatarInput(e.target.value)} />
                       <button type="button" onClick={saveAvatar} className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4 py-2 rounded text-sm transition-colors">Kaydet</button>
-                      {currentUserData.avatar && (
-                         <button type="button" onClick={removeAvatar} className="bg-red-600 hover:bg-red-500 text-white font-bold px-4 py-2 rounded text-sm transition-colors">Kaldır</button>
-                      )}
+                      {currentUserData.avatar && <button type="button" onClick={removeAvatar} className="bg-red-600 hover:bg-red-500 text-white font-bold px-4 py-2 rounded text-sm transition-colors">Kaldır</button>}
                   </div>
-                  <p className="text-[10px] text-slate-500 mt-2">Galerinizden seçtiğiniz fotoğraflar hızlı yükleme için otomatik olarak kırpılır.</p>
                </div>
             </div>
         </div>
 
-        {/* Ayarlar Sağ Sütun */}
         <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
           <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><KeyRound className="text-orange-400" /> Şifre İşlemleri</h2>
-          
-          <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-6 text-sm flex justify-between items-center">
-            <span className="text-slate-400">Mevcut Şifreniz:</span>
-            <span className="font-mono text-cyan-400 text-lg font-bold">{currentUserData.password}</span>
-          </div>
-
+          <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-6 text-sm flex justify-between items-center"><span className="text-slate-400">Mevcut Şifreniz:</span><span className="font-mono text-cyan-400 text-lg font-bold">{currentUserData.password}</span></div>
           <form onSubmit={changePassword} className="space-y-4">
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Yeni Şifre Belirle</label>
-              <input required type="password" placeholder="Yeni şifrenizi girin" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={pass1} onChange={e => setPass1(e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-xs text-slate-400 mb-1">Yeni Şifre (Tekrar)</label>
-              <input required type="password" placeholder="Şifrenizi tekrar girin" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={pass2} onChange={e => setPass2(e.target.value)} />
-            </div>
-            <button type="submit" className="w-full mt-2 py-3 rounded-lg font-bold bg-orange-600 hover:bg-orange-500 text-white shadow-lg transition-all flex justify-center items-center gap-2">
-               Şifreyi Değiştir
-            </button>
+            <div><label className="block text-xs text-slate-400 mb-1">Yeni Şifre Belirle</label><input required type="password" placeholder="Yeni şifre" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={pass1} onChange={e => setPass1(e.target.value)} /></div>
+            <div><label className="block text-xs text-slate-400 mb-1">Yeni Şifre (Tekrar)</label><input required type="password" placeholder="Şifre tekrar" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={pass2} onChange={e => setPass2(e.target.value)} /></div>
+            <button type="submit" className="w-full mt-2 py-3 rounded-lg font-bold bg-orange-600 hover:bg-orange-500 text-white shadow-lg transition-all flex justify-center items-center gap-2">Şifreyi Değiştir</button>
           </form>
         </div>
-
       </div>
     </div>
   );
@@ -714,11 +672,7 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
   const pendingPlayers = players.filter(p => p.status === 'pending');
   const approvedPlayers = players.filter(p => p.status === 'approved');
 
-  const nextMatch = matches
-    .slice()
-    .sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`))
-    .find(m => m.status === 'pending' || m.status === 'active');
-
+  const nextMatch = matches.slice().sort((a, b) => new Date(`${a.date}T${a.time}`) - new Date(`${b.date}T${b.time}`)).find(m => m.status === 'pending' || m.status === 'active');
   const usedNumbers = players.map(p => Number(p.number));
   const availableNumbers = Array.from({length: 99}, (_, i) => i + 1);
 
@@ -739,7 +693,6 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
 
   return (
     <div className="space-y-8">
-
       {isAdmin && (
         <div className="bg-gradient-to-r from-blue-900/40 to-cyan-900/10 border border-blue-500/30 p-4 rounded-xl flex items-center gap-3">
           {isMasterAdmin ? <ShieldCheck className="text-yellow-400" size={28} /> : <Shield className="text-cyan-400" size={28} />}
@@ -750,29 +703,21 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
         </div>
       )}
 
-      {/* GELECEK MAÇ VE DİZİLİŞ EKRANI */}
       {nextMatch && (
         <div className="bg-gradient-to-r from-blue-900/50 to-slate-900 border border-cyan-500/50 p-5 rounded-xl shadow-[0_0_15px_rgba(34,211,238,0.15)] cursor-pointer hover:shadow-[0_0_20px_rgba(34,211,238,0.3)] transition-all" onClick={() => setShowNextMatchRoster(!showNextMatchRoster)}>
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="text-center md:text-left">
               <div className="text-xs text-cyan-400 font-bold uppercase tracking-widest mb-1 animate-pulse">Gelecek Maç</div>
-              <div className="text-xl font-bold text-white flex items-center justify-center md:justify-start gap-2">
-                <CalendarDays size={20} className="text-slate-400"/> {nextMatch.date} - {nextMatch.time}
-              </div>
+              <div className="text-xl font-bold text-white flex items-center justify-center md:justify-start gap-2"><CalendarDays size={20} className="text-slate-400"/> {nextMatch.date} - {nextMatch.time}</div>
               <div className="text-sm text-slate-400 mt-1 flex items-center justify-center md:justify-start gap-1">📍 {nextMatch.stadium || 'Baykar Park'}</div>
             </div>
             <div className="flex items-center gap-4">
-               <div className="font-black text-xl md:text-2xl text-blue-400 text-right">{nextMatch.teamAName}</div>
-               <div className="text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded-full">VS</div>
-               <div className="font-black text-xl md:text-2xl text-pink-400 text-left">{nextMatch.teamBName}</div>
+               <div className="font-black text-xl md:text-2xl text-blue-400 text-right">{nextMatch.teamAName}</div><div className="text-xs text-slate-500 bg-slate-900 px-2 py-1 rounded-full">VS</div><div className="font-black text-xl md:text-2xl text-pink-400 text-left">{nextMatch.teamBName}</div>
             </div>
           </div>
-          
           {showNextMatchRoster && (
             <div className="mt-6 pt-4 border-t border-cyan-500/30" onClick={(e) => e.stopPropagation()}>
                <div className="text-center mb-3 font-bold text-cyan-400 uppercase tracking-widest text-xs">Saha Dizilişi</div>
-               
-               {/* Görsel Saha Dizilişi Alanı */}
                <div className="relative w-full max-w-2xl mx-auto aspect-[4/3] max-h-[400px] flex overflow-hidden border-2 border-white/50 rounded-lg" style={{background: '#1a5928'}}>
                   <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 10%, #000 10%, #000 20%)'}}></div>
                   <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/80 -ml-[1px] z-10"></div>
@@ -780,32 +725,22 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
                   <div className="absolute left-0 top-1/2 -mt-16 w-24 h-32 border-2 border-l-0 border-white/80 z-10"></div>
                   <div className="absolute right-0 top-1/2 -mt-16 w-24 h-32 border-2 border-r-0 border-white/80 z-10"></div>
                   
-                  {/* Takım A Oyuncuları */}
                   {nextMatch.teamA.map(p => {
-                      const player = players.find(x => x.id === p.playerId);
-                      if(!player) return null;
+                      const player = players.find(x => x.id === p.playerId); if(!player) return null;
                       return (
                           <div key={p.playerId} className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-30" style={{ left: `${p.x}%`, top: `${p.y}%` }}>
-                              <div 
-                                className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 bg-blue-600 border-blue-300 overflow-hidden cursor-pointer"
-                                onClick={(e) => { e.stopPropagation(); player.avatar && setEnlargedImage(player.avatar); }}
-                              >
+                              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 bg-blue-600 border-blue-300 overflow-hidden cursor-pointer" onClick={(e) => { e.stopPropagation(); player.avatar && setEnlargedImage(player.avatar); }}>
                                  {player.avatar ? <img src={player.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform"/> : (player.number || player.firstName.charAt(0))}
                               </div>
                               <div className="bg-black/80 text-white text-[9px] sm:text-[11px] px-1.5 py-0.5 rounded mt-1 whitespace-nowrap font-semibold border border-slate-700/50">{player.firstName}</div>
                           </div>
                       );
                   })}
-                  {/* Takım B Oyuncuları */}
                   {nextMatch.teamB.map(p => {
-                      const player = players.find(x => x.id === p.playerId);
-                      if(!player) return null;
+                      const player = players.find(x => x.id === p.playerId); if(!player) return null;
                       return (
                           <div key={p.playerId} className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-30" style={{ left: `${p.x}%`, top: `${p.y}%` }}>
-                              <div 
-                                className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 bg-pink-600 border-pink-300 overflow-hidden cursor-pointer"
-                                onClick={(e) => { e.stopPropagation(); player.avatar && setEnlargedImage(player.avatar); }}
-                              >
+                              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 bg-pink-600 border-pink-300 overflow-hidden cursor-pointer" onClick={(e) => { e.stopPropagation(); player.avatar && setEnlargedImage(player.avatar); }}>
                                  {player.avatar ? <img src={player.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform"/> : (player.number || player.firstName.charAt(0))}
                               </div>
                               <div className="bg-black/80 text-white text-[9px] sm:text-[11px] px-1.5 py-0.5 rounded mt-1 whitespace-nowrap font-semibold border border-slate-700/50">{player.firstName}</div>
@@ -930,13 +865,11 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
 // ==========================================
 // 3. KADRO KURMA SEKRESİ (Sadece Adminler)
 // ==========================================
-function SquadTab({ players, matches, setEnlargedImage }) {
+function SquadTab({ players, matches, setEnlargedImage, settings, sendNotification }) {
   const [matchData, setMatchData] = useState({ date: '', time: '', stadium: '', teamAName: 'Ev Sahibi', teamBName: 'Deplasman' });
   const [pitchPlayers, setPitchPlayers] = useState([]);
   const [substitutes, setSubstitutes] = useState([]);
   const [notification, setNotification] = useState(null);
-
-  const statsMap = getPlayerStatsMap(players, matches);
 
   const moveToPitch = (playerId, team) => {
     const x = team === 'A' ? 25 + Math.random() * 10 : 65 + Math.random() * 10;
@@ -947,23 +880,14 @@ function SquadTab({ players, matches, setEnlargedImage }) {
     });
     setSubstitutes(prev => prev.filter(id => id !== playerId));
   };
-
-  const moveToSubs = (playerId) => {
-    if (!substitutes.includes(playerId)) setSubstitutes([...substitutes, playerId]);
-    setPitchPlayers(prev => prev.filter(p => p.playerId !== playerId));
-  };
-
-  const removeFromSquad = (playerId) => {
-    setPitchPlayers(prev => prev.filter(p => p.playerId !== playerId));
-    setSubstitutes(prev => prev.filter(id => id !== playerId));
-  };
+  const moveToSubs = (playerId) => { if (!substitutes.includes(playerId)) setSubstitutes([...substitutes, playerId]); setPitchPlayers(prev => prev.filter(p => p.playerId !== playerId)); };
+  const removeFromSquad = (playerId) => { setPitchPlayers(prev => prev.filter(p => p.playerId !== playerId)); setSubstitutes(prev => prev.filter(id => id !== playerId)); };
 
   const handleDragStart = (e, playerId, source) => { e.dataTransfer.setData('playerId', playerId); e.dataTransfer.setData('source', source); };
   const handleDropOnPitch = (e, team) => { e.preventDefault(); const playerId = e.dataTransfer.getData('playerId'); if (!playerId) return; const rect = e.currentTarget.getBoundingClientRect(); const x = ((e.clientX - rect.left) / rect.width) * 100; const y = ((e.clientY - rect.top) / rect.height) * 100; setPitchPlayers(prev => { const filtered = prev.filter(p => p.playerId !== playerId); return [...filtered, { playerId, x, y, team }]; }); setSubstitutes(prev => prev.filter(id => id !== playerId)); };
   const handleDropOnSubs = (e) => { e.preventDefault(); const playerId = e.dataTransfer.getData('playerId'); if (!playerId) return; if (!substitutes.includes(playerId)) setSubstitutes([...substitutes, playerId]); setPitchPlayers(prev => prev.filter(p => p.playerId !== playerId)); };
   const handleDropToRemove = (e) => { e.preventDefault(); const playerId = e.dataTransfer.getData('playerId'); if (!playerId) return; removeFromSquad(playerId); };
   const updatePitchPlayerPosition = (playerId, x, y) => { setPitchPlayers(prev => prev.map(p => p.playerId === playerId ? { ...p, x, y, team: x <= 50 ? 'A' : 'B' } : p)); };
-  
   const handleDoubleClickPlayer = (playerId) => { const countA = pitchPlayers.filter(p => p.team === 'A').length; const countB = pitchPlayers.filter(p => p.team === 'B').length; moveToPitch(playerId, countA <= countB ? 'A' : 'B'); };
 
   const saveMatch = async () => {
@@ -972,11 +896,17 @@ function SquadTab({ players, matches, setEnlargedImage }) {
     if (errors.length > 0) { setNotification({ type: 'error', text: `Lütfen eksik bilgileri girin: ${errors.join(', ')}` }); setTimeout(() => setNotification(null), 5000); return; }
 
     const newMatch = {
-      id: generateId(), ...matchData, stadium: matchData.stadium.trim() || 'Baykar Park', teamA: pitchPlayers.filter(p => p.team === 'A'), teamB: pitchPlayers.filter(p => p.team === 'B'), subs: substitutes, status: 'pending',
-      scoreA: 0, scoreB: 0, events: [], ratings: {}, ratingsClosed: false, forceOpen: false
+      id: generateId(), ...matchData, stadium: matchData.stadium.trim() || 'Baykar Park', teamA: pitchPlayers.filter(p => p.team === 'A'), teamB: pitchPlayers.filter(p => p.team === 'B'), subs: substitutes, status: 'pending', scoreA: 0, scoreB: 0, events: [], ratings: {}, ratingsClosed: false, forceOpen: false
     };
 
     await setDoc(doc(dbPath('matches'), newMatch.id), newMatch);
+    
+    // BİLDİRİM GÖNDERME MANTIĞI
+    if (settings?.autoMatch) {
+       const playersInMatch = [...newMatch.teamA, ...newMatch.teamB].map(p => p.playerId);
+       await sendNotification("MAÇINIZ VAR", `${matchData.date} - ${matchData.time} tarihinde maçınız planlandı. Stadyum: ${newMatch.stadium}`, playersInMatch);
+    }
+
     setNotification({ type: 'success', text: 'Kadro başarıyla kaydedildi! Fikstürden maçı başlatabilirsiniz.' }); setTimeout(() => setNotification(null), 4000); setPitchPlayers([]); setSubstitutes([]); setMatchData({ date: '', time: '', stadium: '', teamAName: 'Ev Sahibi', teamBName: 'Deplasman' });
   };
 
@@ -1087,7 +1017,7 @@ const PitchPlayer = ({ pp, players, onDragStart, teamColor, onUpdatePosition, on
 // ==========================================
 // 4. FİKSTÜR VE MAÇ YÖNETİMİ
 // ==========================================
-function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin, setEnlargedImage }) {
+function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin, setEnlargedImage, settings, sendNotification }) {
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [confirmEndMatchId, setConfirmEndMatchId] = useState(null);
   const [editingMatch, setEditingMatch] = useState(null);
@@ -1106,28 +1036,35 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
     if (match.status !== 'completed' || !isRatingsClosedForMatch(match)) return null;
     let bestPlayer = null;
     let bestScore = -1;
-
     const allPlayers = [...match.teamA, ...match.teamB];
     const bannedRaters = getBannedRaters(match.ratings);
 
     allPlayers.forEach(p => {
         const avg = calcPlayerMatchRating(match, p.playerId, bannedRaters);
         if (avg !== null && avg > bestScore) {
-            bestScore = avg;
-            bestPlayer = { ...p, score: avg };
+            bestScore = avg; bestPlayer = { ...p, score: avg };
         }
     });
 
-    if (bestPlayer) {
-        return { player: players.find(x => x.id === bestPlayer.playerId), score: bestScore.toFixed(2) };
-    }
+    if (bestPlayer) return { player: players.find(x => x.id === bestPlayer.playerId), score: bestScore.toFixed(2) };
     return null;
   };
 
   const updateMatchStatus = async (matchId, status) => {
     if (!isAdmin) return;
     await updateDoc(doc(dbPath('matches'), matchId), { status });
-    if (status === 'completed') setConfirmEndMatchId(null);
+    const m = matches.find(x => x.id === matchId);
+    const pList = [...m.teamA, ...m.teamB].map(p => p.playerId);
+
+    if (status === 'active' && settings?.autoRatingStart) {
+        await sendNotification("Maç oylaması başlamıştır", `${m.teamAName} vs ${m.teamBName} maçı için oylama başlamıştır.`, pList);
+    }
+    if (status === 'completed') {
+        setConfirmEndMatchId(null);
+        if (settings?.autoRatingEnd) {
+           await sendNotification("Oylama Tamamlanmıştır", `${m.teamAName} vs ${m.teamBName} maçının oylaması ve istatistik hesaplamaları tamamlanmıştır.`, pList);
+        }
+    }
   };
 
   const handleDeleteMatch = async (matchId) => {
@@ -1141,11 +1078,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
   const saveMatchEdit = async () => {
     if (!isAdmin) return;
     await updateDoc(doc(dbPath('matches'), editingMatch.id), {
-      date: editingMatch.date,
-      time: editingMatch.time,
-      stadium: editingMatch.stadium || 'Baykar Park',
-      teamAName: editingMatch.teamAName,
-      teamBName: editingMatch.teamBName
+      date: editingMatch.date, time: editingMatch.time, stadium: editingMatch.stadium || 'Baykar Park', teamAName: editingMatch.teamAName, teamBName: editingMatch.teamBName
     });
     setEditingMatch(null);
   };
@@ -1162,9 +1095,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
   const saveEventEdit = async () => {
     if (!isAdmin || !editingEvent || !editingEvent.scorerId) return;
     const newEvents = selectedMatch.events.map(e => 
-      e.id === editingEvent.id 
-        ? { ...e, scorerId: editingEvent.scorerId, assistId: editingEvent.assistId === 'none' ? null : editingEvent.assistId } 
-        : e
+      e.id === editingEvent.id ? { ...e, scorerId: editingEvent.scorerId, assistId: editingEvent.assistId === 'none' ? null : editingEvent.assistId } : e
     );
     await updateDoc(doc(dbPath('matches'), selectedMatch.id), { events: newEvents });
     setEditingEvent(null);
@@ -1173,16 +1104,12 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
   const deleteEvent = async (eventId) => {
     if (!isAdmin) return;
     if (!window.confirm("Bu golü silmek istediğinize emin misiniz? Maç skoru yeniden hesaplanacaktır.")) return;
-    
     const newEvents = selectedMatch.events.filter(e => e.id !== eventId);
     let newScoreA = 0; let newScoreB = 0;
-    
     const recalculatedEvents = newEvents.map(e => {
-       if (e.team === 'A') newScoreA++;
-       if (e.team === 'B') newScoreB++;
+       if (e.team === 'A') newScoreA++; if (e.team === 'B') newScoreB++;
        return { ...e, scoreAAtTime: newScoreA, scoreBAtTime: newScoreB };
     });
-    
     await updateDoc(doc(dbPath('matches'), selectedMatch.id), { events: recalculatedEvents, scoreA: newScoreA, scoreB: newScoreB });
   };
 
@@ -1343,7 +1270,6 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                       <div className="absolute top-0 bottom-0 w-px bg-slate-600 left-1/2 transform -translate-x-1/2"></div>
                       {selectedMatch.events.map((ev, idx) => {
                         const scoreDisplay = ev.scoreAAtTime !== undefined ? `${ev.scoreAAtTime} - ${ev.scoreBAtTime}` : '? - ?';
-                        
                         if (editingEvent?.id === ev.id) {
                           const teamPlayers = selectedMatch[`team${ev.team}`].map(tp => players.find(p => p.id === tp.playerId)).filter(Boolean);
                           return (
@@ -1428,7 +1354,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
 
                    {!ratingsAreClosed && myTeam && (
                      <div className="text-xs text-cyan-400 mb-4 bg-cyan-900/20 p-2 rounded border border-cyan-800">
-                       Bilgi: Kendi takımın ve karşı takım için 1-10 arası puan girebilirsin. Kendine puan veremezsin. Puanlama "Puanlamayı Bitir" butonuna basılana veya ertesi gün saat 12:00 olana kadar devam eder.
+                       Bilgi: Kendi takımın ve karşı takım için 1-10 arası puan girebilirsin. Kendine puan veremezsin. Puanı silmek istersen kutucuğu boş bırakabilirsin.
                      </div>
                    )}
                    {ratingsAreClosed && (
@@ -1459,7 +1385,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                      {ratingsAreClosed ? (avg !== null ? avg : '-') : '?'}
                                   </span>
                                   {canRate && (
-                                    <input type="number" min="1" max="10" step="1" placeholder="Puan"
+                                    <input type="number" min="1" max="10" step="1" placeholder="-"
                                       className="w-14 bg-slate-900 border border-slate-600 rounded p-1 text-center text-white text-xs outline-none focus:border-cyan-400"
                                       value={myRating} onChange={(e) => handleRatingChange(p.playerId, e.target.value)} />
                                   )}
@@ -1490,7 +1416,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                                      {ratingsAreClosed ? (avg !== null ? avg : '-') : '?'}
                                   </span>
                                   {canRate && (
-                                    <input type="number" min="1" max="10" step="1" placeholder="Puan"
+                                    <input type="number" min="1" max="10" step="1" placeholder="-"
                                       className="w-14 bg-slate-900 border border-slate-600 rounded p-1 text-center text-white text-xs outline-none focus:border-cyan-400"
                                       value={myRating} onChange={(e) => handleRatingChange(p.playerId, e.target.value)} />
                                   )}
@@ -1506,14 +1432,14 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
                 {isAdmin && selectedMatch.status === 'active' && (
                   confirmEndMatchId === selectedMatch.id ? (
                     <div className="w-full bg-red-900/30 border border-red-500 p-4 rounded-lg mt-4 text-center transition-all">
-                      <p className="text-white font-bold mb-4">Maçı bitirmek istediğinize emin misiniz? (Not: Puanlama için ayrıca "Puanlamayı Bitir" yapmalısınız)</p>
+                      <p className="text-white font-bold mb-4">Maçı bitirmek istediğinize emin misiniz? (Puanlamalar kapatılır ve istatistikler işlenir.)</p>
                       <div className="flex justify-center gap-4">
-                        <button onClick={() => updateMatchStatus(selectedMatch.id, 'completed')} className="bg-red-600 hover:bg-red-500 text-white px-6 py-2 rounded-lg font-bold shadow-lg">Evet, Maçı Bitir</button>
+                        <button onClick={() => updateMatchStatus(selectedMatch.id, 'completed')} className="bg-red-600 hover:bg-red-500 text-white px-6 py-2 rounded-lg font-bold shadow-lg">Evet, Bitir</button>
                         <button onClick={() => setConfirmEndMatchId(null)} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-2 rounded-lg font-bold">İptal</button>
                       </div>
                     </div>
                   ) : (
-                    <button onClick={() => setConfirmEndMatchId(selectedMatch.id)} className="w-full bg-blue-600 hover:bg-blue-500 text-white p-3 rounded-lg font-bold mt-4 shadow-lg transition-colors">Maçı Bitir</button>
+                    <button onClick={() => setConfirmEndMatchId(selectedMatch.id)} className="w-full bg-red-600 hover:bg-red-500 text-white p-3 rounded-lg font-bold mt-4 shadow-lg transition-colors">Maçı Bitir ve İstatistiklere Ekle</button>
                   )
                 )}
               </div>
@@ -1700,10 +1626,16 @@ function StatsTab({ players, matches, setEnlargedImage }) {
 // ==========================================
 // YENİ: ADMIN AYARLARI SEKRESİ (SADECE ASIL ADMIN)
 // ==========================================
-function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage }) {
+function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage, settings, sendNotification }) {
   const [editingPlayer, setEditingPlayer] = useState(null);
   const [subTab, setSubTab] = useState('players');
   const [selectedMatchId, setSelectedMatchId] = useState(null);
+  
+  // Bildirim State'leri
+  const [customTitle, setCustomTitle] = useState('');
+  const [customMsg, setCustomMsg] = useState('');
+  const [customTarget, setCustomTarget] = useState('all');
+  const [notifMsg, setNotifMsg] = useState(null);
 
   const saveEdit = async () => {
     if (!editingPlayer.firstName || !editingPlayer.number || !editingPlayer.position) return;
@@ -1741,16 +1673,32 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage 
   };
 
   const toggleRatingStatus = async (matchId, currentStatus) => {
+    const m = matches.find(x => x.id === matchId);
+    const pList = [...m.teamA, ...m.teamB].map(p => p.playerId);
+
     if (currentStatus) {
         await updateDoc(doc(dbPath('matches'), matchId), { ratingsClosed: false, forceOpen: true });
+        if(settings?.autoRatingStart) await sendNotification("Maç oylaması yeniden açılmıştır", `${m.teamAName} vs ${m.teamBName} maçı için oylama tekrar başlatıldı.`, pList);
     } else {
         await updateDoc(doc(dbPath('matches'), matchId), { ratingsClosed: true, forceOpen: false });
+        if(settings?.autoRatingEnd) await sendNotification("Oylama Tamamlanmıştır", `${m.teamAName} vs ${m.teamBName} maçının oylaması admin tarafından manuel olarak tamamlanmıştır.`, pList);
     }
   };
 
   const getPlayerName = (id) => {
     const p = players.find(x => x.id === id);
     return p ? `${p.firstName} ${p.lastName}` : 'Bilinmiyor';
+  };
+
+  const sendCustomNotif = async () => {
+     if(!customTitle || !customMsg) {
+        setNotifMsg({type: 'error', text: 'Başlık ve Mesaj boş olamaz.'});
+        setTimeout(()=>setNotifMsg(null), 3000); return;
+     }
+     await sendNotification(customTitle, customMsg, customTarget === 'all' ? 'all' : [customTarget]);
+     setNotifMsg({type: 'success', text: 'Bildirim başarıyla gönderildi!'});
+     setCustomTitle(''); setCustomMsg('');
+     setTimeout(()=>setNotifMsg(null), 3000);
   };
 
   const sortedMatches = [...matches].sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`));
@@ -1765,9 +1713,10 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage 
           <Settings size={24} /> Tam Yetkili Asıl Admin Paneli
         </h2>
         
-        <div className="flex gap-2 mb-6">
+        <div className="flex gap-2 mb-6 flex-wrap">
             <button onClick={()=>setSubTab('players')} className={`px-4 py-2 rounded font-bold text-sm transition-colors ${subTab === 'players' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Oyuncu Ayarları</button>
             <button onClick={()=>setSubTab('matches')} className={`px-4 py-2 rounded font-bold text-sm transition-colors ${subTab === 'matches' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Maç Ayarları (Puanlama)</button>
+            <button onClick={()=>setSubTab('notifications')} className={`px-4 py-2 rounded font-bold text-sm transition-colors ${subTab === 'notifications' ? 'bg-red-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}>Bildirim Ayarları</button>
         </div>
 
         {subTab === 'players' && (
@@ -1981,6 +1930,53 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage 
                         Puan detaylarını görmek için soldan bir maç seçin.
                      </div>
                    )}
+                </div>
+            </div>
+        )}
+
+        {subTab === 'notifications' && (
+            <div className="space-y-6">
+                <div className="bg-slate-900 p-6 rounded-lg border border-slate-700">
+                    <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">Otomatik Bildirim Ayarları</h3>
+                    <div className="space-y-4">
+                        <label className="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox" checked={settings.autoMatch} onChange={e => updateDoc(doc(dbPath('settings'), 'general'), {autoMatch: e.target.checked})} className="w-4 h-4 accent-cyan-500" />
+                            <span className="text-sm text-slate-300">Maç Oluşturulduğunda <span className="font-bold text-white">"MAÇINIZ VAR"</span> bildirimi at</span>
+                        </label>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox" checked={settings.autoRatingStart} onChange={e => updateDoc(doc(dbPath('settings'), 'general'), {autoRatingStart: e.target.checked})} className="w-4 h-4 accent-cyan-500" />
+                            <span className="text-sm text-slate-300">Oylama Başladığında <span className="font-bold text-white">"Maç oylaması başlamıştır"</span> bildirimi at</span>
+                        </label>
+                        <label className="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox" checked={settings.autoRatingEnd} onChange={e => updateDoc(doc(dbPath('settings'), 'general'), {autoRatingEnd: e.target.checked})} className="w-4 h-4 accent-cyan-500" />
+                            <span className="text-sm text-slate-300">Oylama Bittiğinde <span className="font-bold text-white">"Oylama Tamamlanmıştır"</span> bildirimi at</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div className="bg-slate-900 p-6 rounded-lg border border-slate-700">
+                    <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">Özel Bildirim Gönder</h3>
+                    {notifMsg && <div className={`p-3 rounded mb-4 text-sm font-bold ${notifMsg.type === 'error' ? 'bg-red-900/50 text-red-400' : 'bg-green-900/50 text-green-400'}`}>{notifMsg.text}</div>}
+                    <div className="space-y-4">
+                        <div>
+                            <label className="block text-xs text-slate-400 mb-1">Kime Gönderilecek?</label>
+                            <select className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm outline-none focus:border-cyan-400" value={customTarget} onChange={e => setCustomTarget(e.target.value)}>
+                                <option value="all">Tüm Oyunculara (Herkes)</option>
+                                {sortedPlayers.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs text-slate-400 mb-1">Bildirim Başlığı</label>
+                            <input type="text" placeholder="Örn: Aidat Ödemeleri" className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm outline-none focus:border-cyan-400" value={customTitle} onChange={e => setCustomTitle(e.target.value)} />
+                        </div>
+                        <div>
+                            <label className="block text-xs text-slate-400 mb-1">Mesaj İçeriği</label>
+                            <textarea rows="3" placeholder="Mesajınızı buraya yazın..." className="w-full bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm outline-none resize-none focus:border-cyan-400" value={customMsg} onChange={e => setCustomMsg(e.target.value)} />
+                        </div>
+                        <div className="flex justify-end">
+                            <button onClick={sendCustomNotif} className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-6 py-2 rounded transition-colors text-sm shadow-[0_0_10px_rgba(37,99,235,0.4)]">Bildirimi Gönder</button>
+                        </div>
+                    </div>
                 </div>
             </div>
         )}
