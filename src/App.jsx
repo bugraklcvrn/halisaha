@@ -196,10 +196,9 @@ export default function App() {
         const permission = await Notification.requestPermission();
         
         if (permission === 'granted') {
-          // DİKKAT: BURADAKİ KEY'İ KENDİ VAPID KEY'İNİZ İLE DEĞİŞTİRİN
-          const currentToken = await getToken(messaging, { vapidKey: "BNOnFq8MFh1cD-xgwW672tuIisx1FaOcQ0AIfMmMOAxEd3PpiQqeLIUxreI6e8hrGQpZaFFBCwo_zBqPnScXfgoBNOnFq8MFh1cD-xgwW672tuIisx1FaOcQ0AIfMmMOAxEd3PpiQqeLIUxreI6e8hrGQpZaFFBCwo_zBqPnScXfgo" });
+          // VAPID KEY EKLENDI
+          const currentToken = await getToken(messaging, { vapidKey: "BNOnFq8MFh1cD-xgwW672tuIisx1FaOcQ0AIfMmMOAxEd3PpiQqeLIUxreI6e8hrGQpZaFFBCwo_zBqPnScXfgo" });
           if (currentToken) {
-            // Token'i kullanıcının dosyasına yaz
             await updateDoc(doc(dbPath('players'), appUserId), { fcmToken: currentToken });
           }
         }
@@ -241,17 +240,10 @@ export default function App() {
              if (!response.ok) {
                  const errData = await response.json();
                  console.error("API Hatası:", errData);
-                 // Adminleri uyaralım
-                 if (currentUserData?.role === 'master_admin') {
-                     alert(`Push bildirimi API'ye ulaşamadı. Vercel loglarını kontrol edin.\nHata: ${errData.error || response.statusText}`);
-                 }
              }
          }
       } catch (err) {
          console.error("Push bildirim fetch tetiklenemedi:", err);
-         if (currentUserData?.role === 'master_admin') {
-             alert(`API sunucusuna ulaşılamadı. Sunucuyu yerelde test ediyor olabilirsiniz veya Vercel'e henüz API yüklenmedi.`);
-         }
       }
   };
 
@@ -359,14 +351,12 @@ export default function App() {
                 <div className="text-[10px] text-cyan-400 font-mono">@{currentUserData.username || currentUserData.id}</div>
               </div>
               
-              {/* BİLDİRİM ZİLİ (TAŞMA SORUNU ÇÖZÜLDÜ) */}
               <div className="relative">
                 <button onClick={() => setShowNotifMenu(!showNotifMenu)} className="relative p-2 text-slate-300 hover:text-white transition-colors bg-slate-900 rounded-full border border-slate-700 focus:outline-none">
                    <Bell size={18} />
                    {unreadCount > 0 && <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] font-bold flex items-center justify-center text-white shadow-lg">{unreadCount}</span>}
                 </button>
                 
-                {/* BİLDİRİM AÇILIR MENÜSÜ */}
                 {showNotifMenu && (
                    <div className="absolute right-[-10px] sm:right-0 mt-3 w-[290px] sm:w-80 max-h-[70vh] bg-slate-800 border border-cyan-500/30 rounded-xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] overflow-y-auto z-[100] flex flex-col origin-top-right">
                       <div className="p-3 border-b border-slate-700 font-bold text-white sticky top-0 bg-slate-800 z-10 flex justify-between items-center shadow-md">
@@ -384,7 +374,6 @@ export default function App() {
                                   <span className={`text-sm font-bold ${!isRead ? 'text-cyan-400' : 'text-slate-300'}`}>{n.title}</span>
                                   {!isRead && <span className="w-2 h-2 bg-cyan-400 rounded-full flex-shrink-0 mt-1 shadow-[0_0_5px_rgba(34,211,238,0.8)]"></span>}
                                 </div>
-                                {/* Yazıların taşmaması için break-words ve whitespace-pre-wrap eklendi */}
                                 <div className="text-xs text-slate-400 whitespace-pre-wrap break-words">{n.message}</div>
                                 <div className="text-[9px] text-slate-500 mt-2 text-right">{new Date(n.createdAt).toLocaleString('tr-TR')}</div>
                              </div>
@@ -544,10 +533,15 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
   const [pass2, setPass2] = useState('');
   const [usernameInput, setUsernameInput] = useState(currentUserData.username || '');
   const [avatarInput, setAvatarInput] = useState(currentUserData.avatar || '');
+  const [numberInput, setNumberInput] = useState(currentUserData.number || '');
   const [msg, setMsg] = useState(null);
 
   const statsMap = getPlayerStatsMap(players, matches);
   const myStats = statsMap[currentUserData.id] || { matches: 0, goals: 0, assists: 0, avgRating: '-' };
+
+  // Forma No için müsait numaraları bul
+  const usedNumbers = players.filter(p => p.id !== currentUserData.id).map(p => Number(p.number));
+  const availableNumbers = Array.from({length: 99}, (_, i) => i + 1);
 
   const showMessage = (type, text) => { setMsg({ type, text }); setTimeout(() => setMsg(null), 4000); };
 
@@ -576,6 +570,13 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
     await updateDoc(doc(dbPath('players'), currentUserData.id), { avatar: '' });
     setAvatarInput('');
     showMessage('success', 'Profil fotoğrafı kaldırıldı!');
+  };
+
+  const saveNumber = async () => {
+    if (!numberInput) return showMessage('error', 'Lütfen geçerli bir numara seçin!');
+    if (usedNumbers.includes(Number(numberInput))) return showMessage('error', 'Bu numara zaten alınmış!');
+    await updateDoc(doc(dbPath('players'), currentUserData.id), { number: numberInput });
+    showMessage('success', 'Forma numarası başarıyla değiştirildi!');
   };
 
   const handleImageUpload = (e) => {
@@ -639,6 +640,27 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
                   </div>
                </div>
             </div>
+
+            <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
+               <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2">Forma Numarası Değiştir</h2>
+               <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
+                  <label className="block text-xs text-slate-400 mb-2">Yeni Forma No Seçin</label>
+                  <div className="flex gap-2">
+                      <select className="flex-1 bg-slate-800 border border-slate-600 rounded p-2 text-white text-sm outline-none focus:border-cyan-400" value={numberInput} onChange={e => setNumberInput(e.target.value)}>
+                        <option value="">Seç...</option>
+                        {availableNumbers.map(num => (
+                          <option key={num} value={num} disabled={usedNumbers.includes(num)}>
+                            {num} {usedNumbers.includes(num) ? '(Dolu)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="button" onClick={saveNumber} className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold px-4 py-2 rounded text-sm transition-colors">Kaydet</button>
+                  </div>
+               </div>
+            </div>
+        </div>
+
+        <div className="space-y-6">
             <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
                <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><ImageIcon className="text-cyan-400" /> Profil Fotoğrafı</h2>
                <div className="bg-slate-900 p-4 rounded-lg border border-slate-700">
@@ -655,16 +677,16 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
                   </div>
                </div>
             </div>
-        </div>
 
-        <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
-          <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><KeyRound className="text-orange-400" /> Şifre İşlemleri</h2>
-          <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-6 text-sm flex justify-between items-center"><span className="text-slate-400">Mevcut Şifreniz:</span><span className="font-mono text-cyan-400 text-lg font-bold">{currentUserData.password}</span></div>
-          <form onSubmit={changePassword} className="space-y-4">
-            <div><label className="block text-xs text-slate-400 mb-1">Yeni Şifre Belirle</label><input required type="password" placeholder="Yeni şifre" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={pass1} onChange={e => setPass1(e.target.value)} /></div>
-            <div><label className="block text-xs text-slate-400 mb-1">Yeni Şifre (Tekrar)</label><input required type="password" placeholder="Şifre tekrar" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={pass2} onChange={e => setPass2(e.target.value)} /></div>
-            <button type="submit" className="w-full mt-2 py-3 rounded-lg font-bold bg-orange-600 hover:bg-orange-500 text-white shadow-lg transition-all flex justify-center items-center gap-2">Şifreyi Değiştir</button>
-          </form>
+            <div className={`${THEME.panel} p-6 rounded-xl border ${THEME.border}`}>
+              <h2 className="text-lg font-bold mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><KeyRound className="text-orange-400" /> Şifre İşlemleri</h2>
+              <div className="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-6 text-sm flex justify-between items-center"><span className="text-slate-400">Mevcut Şifreniz:</span><span className="font-mono text-cyan-400 text-lg font-bold">{currentUserData.password}</span></div>
+              <form onSubmit={changePassword} className="space-y-4">
+                <div><label className="block text-xs text-slate-400 mb-1">Yeni Şifre Belirle</label><input required type="password" placeholder="Yeni şifre" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={pass1} onChange={e => setPass1(e.target.value)} /></div>
+                <div><label className="block text-xs text-slate-400 mb-1">Yeni Şifre (Tekrar)</label><input required type="password" placeholder="Şifre tekrar" className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:border-cyan-400" value={pass2} onChange={e => setPass2(e.target.value)} /></div>
+                <button type="submit" className="w-full mt-2 py-3 rounded-lg font-bold bg-orange-600 hover:bg-orange-500 text-white shadow-lg transition-all flex justify-center items-center gap-2">Şifreyi Değiştir</button>
+              </form>
+            </div>
         </div>
       </div>
     </div>
@@ -1471,18 +1493,29 @@ const GoalForm = ({ team, match, players, onAddGoal }) => {
   const [assist, setAssist] = useState('');
   const teamPlayers = match[`team${team}`].map(tp => players.find(p => p.id === tp.playerId)).filter(Boolean);
 
-  const submit = () => { if(!scorer) return; onAddGoal(scorer, assist === 'none' ? null : assist); setScorer(''); setAssist(''); };
-  const handleScorerChange = (e) => { const newScorer = e.target.value; setScorer(newScorer); if (assist === newScorer) setAssist(''); };
+  const submit = () => {
+    if(!scorer) return;
+    onAddGoal(scorer, assist === 'none' ? null : assist);
+    setScorer(''); setAssist('');
+  };
+
+  const handleScorerChange = (e) => {
+    const newScorer = e.target.value;
+    setScorer(newScorer);
+    if (assist === newScorer) setAssist('');
+  };
 
   return (
     <div className={`p-3 rounded border ${team === 'A' ? 'border-blue-900 bg-blue-900/10' : 'border-pink-900 bg-pink-900/10'}`}>
       <div className={`text-xs font-bold mb-2 ${team === 'A' ? 'text-blue-400' : 'text-pink-400'}`}>{match[`team${team}Name`]}</div>
       <select className="w-full text-sm bg-slate-800 border border-slate-600 rounded p-1 mb-2 text-white outline-none" value={scorer} onChange={handleScorerChange}>
-        <option value="">Golü Atan Seç...</option><option value="own_goal">Kendi Kalesine</option>
+        <option value="">Golü Atan Seç...</option>
+        <option value="own_goal">Kendi Kalesine</option>
         {teamPlayers.map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
       </select>
       <select className="w-full text-sm bg-slate-800 border border-slate-600 rounded p-1 mb-2 text-white outline-none" value={assist} onChange={e => setAssist(e.target.value)} disabled={scorer === 'own_goal'}>
-        <option value="">Asist Yapan (Yoksa boş bırak)</option><option value="none">Asist Yok</option>
+        <option value="">Asist Yapan (Yoksa boş bırak)</option>
+        <option value="none">Asist Yok</option>
         {teamPlayers.filter(p => p.id !== scorer).map(p => <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>)}
       </select>
       <button onClick={submit} className="w-full bg-slate-700 hover:bg-slate-600 text-xs py-1.5 rounded text-white font-bold transition-colors">Ekle</button>
@@ -1492,7 +1525,7 @@ const GoalForm = ({ team, match, players, onAddGoal }) => {
 
 
 // ==========================================
-// 5. İSTATİSTİKLER SEKRESİ
+// 4. İSTATİSTİKLER SEKRESİ
 // ==========================================
 function StatsTab({ players, matches, setEnlargedImage }) {
   const [selectedPlayerForStats, setSelectedPlayerForStats] = useState(null);
@@ -1500,12 +1533,12 @@ function StatsTab({ players, matches, setEnlargedImage }) {
   const completedMatches = matches.filter(m => m.status === 'completed');
   const totalMatches = completedMatches.length;
   let totalGoals = 0;
-  
+
   completedMatches.forEach(m => { totalGoals += m.scoreA + m.scoreB; });
 
   const statsMap = getPlayerStatsMap(players, matches);
   const statsArray = Object.values(statsMap).filter(s => s.matches > 0);
-  
+
   const topScorers = [...statsArray].sort((a, b) => b.goals - a.goals).slice(0, 10);
   const topAssists = [...statsArray].sort((a, b) => b.assists - a.assists).slice(0, 10);
   
@@ -1568,24 +1601,41 @@ function StatsTab({ players, matches, setEnlargedImage }) {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-blue-900 to-slate-900 p-6 rounded-2xl border border-blue-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{totalMatches}</div><div className="text-sm text-blue-300 font-semibold uppercase tracking-wider">Oynanan Maç</div></div>
-        <div className="bg-gradient-to-br from-cyan-900 to-slate-900 p-6 rounded-2xl border border-cyan-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{totalGoals}</div><div className="text-sm text-cyan-300 font-semibold uppercase tracking-wider">Atılan Gol</div></div>
-        <div className="bg-gradient-to-br from-pink-900 to-slate-900 p-6 rounded-2xl border border-pink-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{totalMatches > 0 ? (totalGoals/totalMatches).toFixed(1) : 0}</div><div className="text-sm text-pink-300 font-semibold uppercase tracking-wider">Maç Başı Gol</div></div>
-        <div className="bg-gradient-to-br from-purple-900 to-slate-900 p-6 rounded-2xl border border-purple-500/30 text-center shadow-lg"><div className="text-4xl font-black text-white mb-1">{players.filter(p=>p.status==='approved').length}</div><div className="text-sm text-purple-300 font-semibold uppercase tracking-wider">Onaylı Oyuncu</div></div>
+        <div className="bg-gradient-to-br from-blue-900 to-slate-900 p-6 rounded-2xl border border-blue-500/30 text-center shadow-lg">
+          <div className="text-4xl font-black text-white mb-1">{totalMatches}</div>
+          <div className="text-sm text-blue-300 font-semibold uppercase tracking-wider">Oynanan Maç</div>
+        </div>
+        <div className="bg-gradient-to-br from-cyan-900 to-slate-900 p-6 rounded-2xl border border-cyan-500/30 text-center shadow-lg">
+          <div className="text-4xl font-black text-white mb-1">{totalGoals}</div>
+          <div className="text-sm text-cyan-300 font-semibold uppercase tracking-wider">Atılan Gol</div>
+        </div>
+        <div className="bg-gradient-to-br from-pink-900 to-slate-900 p-6 rounded-2xl border border-pink-500/30 text-center shadow-lg">
+          <div className="text-4xl font-black text-white mb-1">{totalMatches > 0 ? (totalGoals/totalMatches).toFixed(1) : 0}</div>
+          <div className="text-sm text-pink-300 font-semibold uppercase tracking-wider">Maç Başı Gol</div>
+        </div>
+        <div className="bg-gradient-to-br from-purple-900 to-slate-900 p-6 rounded-2xl border border-purple-500/30 text-center shadow-lg">
+          <div className="text-4xl font-black text-white mb-1">{players.filter(p=>p.status==='approved').length}</div>
+          <div className="text-sm text-purple-300 font-semibold uppercase tracking-wider">Onaylı Oyuncu</div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className={`${THEME.panel} p-6 rounded-xl border border-yellow-500/30`}>
-          <h3 className="text-lg font-bold text-yellow-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Goal size={20} /> Gol Krallığı</h3>
+          <h3 className="text-lg font-bold text-yellow-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2">
+            <Goal size={20} /> Gol Krallığı
+          </h3>
           <ul className="space-y-3">
             {topScorers.map((s, idx) => (
               <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded cursor-pointer hover:bg-slate-700 transition-colors">
-                 <div className="flex items-center gap-3">
-                    <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
-                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
-                    <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maçta</div></div>
-                 </div>
-                 <div className="text-xl font-black text-yellow-400">{s.goals}</div>
+                <div className="flex items-center gap-3">
+                  <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
+                  {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
+                  <div>
+                    <div className="font-bold">{s.name}</div>
+                    <div className="text-[10px] text-slate-400">{s.matches} maçta</div>
+                  </div>
+                </div>
+                <div className="text-xl font-black text-yellow-400">{s.goals}</div>
               </li>
             ))}
             {topScorers.length === 0 && <p className="text-sm text-slate-500 text-center">Henüz veri yok</p>}
@@ -1593,16 +1643,21 @@ function StatsTab({ players, matches, setEnlargedImage }) {
         </div>
 
         <div className={`${THEME.panel} p-6 rounded-xl border border-cyan-500/30`}>
-          <h3 className="text-lg font-bold text-cyan-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Users size={20} /> Asist Krallığı</h3>
+          <h3 className="text-lg font-bold text-cyan-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2">
+            <Users size={20} /> Asist Krallığı
+          </h3>
           <ul className="space-y-3">
             {topAssists.map((s, idx) => (
               <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded cursor-pointer hover:bg-slate-700 transition-colors">
-                 <div className="flex items-center gap-3">
-                    <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
-                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
-                    <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maçta</div></div>
-                 </div>
-                 <div className="text-xl font-black text-cyan-400">{s.assists}</div>
+                <div className="flex items-center gap-3">
+                  <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
+                  {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
+                  <div>
+                    <div className="font-bold">{s.name}</div>
+                    <div className="text-[10px] text-slate-400">{s.matches} maçta</div>
+                  </div>
+                </div>
+                <div className="text-xl font-black text-cyan-400">{s.assists}</div>
               </li>
             ))}
              {topAssists.length === 0 && <p className="text-sm text-slate-500 text-center">Henüz veri yok</p>}
@@ -1610,19 +1665,26 @@ function StatsTab({ players, matches, setEnlargedImage }) {
         </div>
 
         <div className={`${THEME.panel} p-6 rounded-xl border border-blue-500/30 lg:col-span-1 md:col-span-2`}>
-          <h3 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2"><Star size={20} /> En Yüksek Puan Ortalaması</h3>
+          <h3 className="text-lg font-bold text-blue-400 mb-4 flex items-center gap-2 border-b border-slate-700 pb-2">
+            <Star size={20} /> En Yüksek Puan Ortalaması
+          </h3>
           <ul className="space-y-3">
             {topRatings.filter(r => r.avgRating > 0).map((s, idx) => (
               <li key={s.id} onClick={() => setSelectedPlayerForStats(s)} className="flex justify-between items-center bg-slate-900/50 p-2 rounded border-l-2 border-blue-500 cursor-pointer hover:bg-slate-700 transition-colors">
-                 <div className="flex items-center gap-3">
-                    <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
-                    {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
-                    <div><div className="font-bold">{s.name}</div><div className="text-[10px] text-slate-400">{s.matches} maç oynadı</div></div>
-                 </div>
-                 <div className="flex flex-col items-end">
-                    <div className="text-lg font-black text-blue-300">{s.avgRating}</div>
-                    <div className="flex text-yellow-400">{[...Array(Math.max(0, Math.round(Number(s.avgRating) / 2)))].map((_, i) => <Star key={i} size={10} fill="currentColor" />)}</div>
-                 </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-slate-500 font-bold w-4">{idx + 1}.</span>
+                  {s.avatar && <img src={s.avatar} className="w-8 h-8 rounded-full object-cover border border-slate-600"/>}
+                  <div>
+                    <div className="font-bold">{s.name}</div>
+                    <div className="text-[10px] text-slate-400">{s.matches} maç oynadı</div>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end">
+                   <div className="text-lg font-black text-blue-300">{s.avgRating}</div>
+                   <div className="flex text-yellow-400">
+                     {[...Array(Math.max(0, Math.round(Number(s.avgRating) / 2)))].map((_, i) => <Star key={i} size={10} fill="currentColor" />)}
+                   </div>
+                </div>
               </li>
             ))}
              {topRatings.filter(r => r.avgRating > 0).length === 0 && <p className="text-sm text-slate-500 text-center">Henüz veri yok</p>}
