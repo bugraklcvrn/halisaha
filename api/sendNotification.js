@@ -1,6 +1,6 @@
-const admin = require('firebase-admin');
+import admin from 'firebase-admin';
 
-// 1. ADIMDA İNDİRDİĞİN JSON DOSYASINDAKİ BİLGİLERİ BURAYA YAPIŞTIR
+// GİZLİ KİMLİK BİLGİLERİNİZ (Vercel Sunucusu için)
 const SERVICE_ACCOUNT = {
   projectId: "halisaha-app-10dff",
   clientEmail: "firebase-adminsdk-fbsvc@halisaha-app-10dff.iam.gserviceaccount.com",
@@ -18,17 +18,19 @@ if (!admin.apps.length) {
   });
 }
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   // Tarayıcı güvenlik (CORS) ayarları
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'OPTIONS,POST');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
+  // Tarayıcının deneme isteğine (OPTIONS) başarılı yanıt dön
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
+  // Sadece bildirim tetiklemelerini kabul et
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Sadece POST metodu desteklenir.' });
   }
@@ -53,4 +55,4 @@ module.exports = async (req, res) => {
     console.error('Push Bildirim hatası:', error);
     return res.status(500).json({ error: 'Bildirim gönderilemedi', details: error.message });
   }
-};
+}
