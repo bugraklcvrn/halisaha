@@ -111,7 +111,6 @@ const getPlayerStatsMap = (players, matches) => {
   });
 
   completedMatches.forEach(m => {
-    // Çökme önleyici (Boş diziler)
     const teamA = m.teamA || [];
     const teamB = m.teamB || [];
     const subs = m.subs || [];
@@ -195,7 +194,7 @@ export default function App() {
     return () => { unsubPlayers(); unsubMatches(); unsubNotifs(); unsubSettings(); };
   }, [firebaseUser]);
 
-  // PUSH BİLDİRİM İZNİ VE TOKEN ALMA
+  // PUSH BİLDİRİM İZNİ VE TOKEN ALMA (DÜZELTİLMİŞ)
   useEffect(() => {
     const setupPushNotifications = async () => {
       if (!appUserId) return;
@@ -204,7 +203,17 @@ export default function App() {
         const permission = await Notification.requestPermission();
         
         if (permission === 'granted') {
-          const currentToken = await getToken(messaging, { vapidKey: "BNOnFq8MFh1cD-xgwW672tuIisx1FaOcQ0AIfMmMOAxEd3PpiQqeLIUxreI6e8hrGQpZaFFBCwo_zBqPnScXfgo" });
+          // Service Worker'ı manuel kaydederek güvenceye alıyoruz
+          let registration;
+          if ('serviceWorker' in navigator) {
+             registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+          }
+          
+          const currentToken = await getToken(messaging, { 
+            vapidKey: "BNOnFq8MFh1cD-xgwW672tuIisx1FaOcQ0AIfMmMOAxEd3PpiQqeLIUxreI6e8hrGQpZaFFBCwo_zBqPnScXfgo",
+            serviceWorkerRegistration: registration 
+          });
+          
           if (currentToken) {
             await updateDoc(doc(dbPath('players'), appUserId), { fcmToken: currentToken });
           }
@@ -212,9 +221,16 @@ export default function App() {
         
         onMessage(messaging, (payload) => {
            console.log("Uygulama İçi Canlı Bildirim:", payload);
+           // Uygulama açıkken de telefonun üstünden bildirim (Push) çıkmasını sağla
+           if (Notification.permission === 'granted') {
+               new Notification(payload.notification.title, {
+                   body: payload.notification.body,
+                   icon: '/vite.svg'
+               });
+           }
         });
       } catch (error) {
-        console.log('Push bildirim ayarlanamadı (Bu tarayıcı veya cihaz desteklemiyor olabilir):', error);
+        console.log('Push bildirim ayarlanamadı:', error);
       }
     };
     setupPushNotifications();
@@ -244,11 +260,15 @@ export default function App() {
              
              if (!response.ok) {
                  const errData = await response.json();
-                 console.error("API Hatası:", errData);
+                 console.error("Vercel API Hatası:", errData);
+                 alert(`Push API Hatası: ${errData.error || response.statusText}\nEğer bilgisayarda deniyorsanız, Vercel'e yükleyin.\nEğer Vercel'deyse, "firebase-admin" paketini kurmamış olabilirsiniz.`);
+             } else {
+                 console.log("Push bildirim başarıyla fırlatıldı!");
              }
          }
       } catch (err) {
-         console.error("Push bildirim fetch tetiklenemedi:", err);
+         console.error("Fetch Hatası:", err);
+         alert("Sunucuya (API) ulaşılamadı. /api/sendNotification yolu bulunamadı.");
       }
   };
 
@@ -271,7 +291,6 @@ export default function App() {
       });
   };
 
-  // Yeni: Bildirim Silme (Kullanıcı kendi açısından gizler)
   const deleteNotification = async (notifId, e) => {
       e.stopPropagation();
       const notif = notifications.find(n => n.id === notifId);
@@ -324,7 +343,6 @@ export default function App() {
     }
   };
 
-  // Silinmemiş bildirimleri filtrele
   const myNotifications = notifications
     .filter(n => (n.targetUsers === 'all' || n.targetUsers.includes(currentUserData.id)) && !(n.deletedBy || []).includes(currentUserData.id))
     .sort((a,b) => b.createdAt - a.createdAt);
@@ -373,7 +391,6 @@ export default function App() {
                 <div className="text-[10px] text-cyan-400 font-mono">@{currentUserData.username || currentUserData.id}</div>
               </div>
               
-              {/* BİLDİRİM ZİLİ */}
               <div className="relative">
                 <button onClick={() => setShowNotifMenu(!showNotifMenu)} className="relative p-2 text-slate-300 hover:text-white transition-colors bg-slate-900 rounded-full border border-slate-700 focus:outline-none">
                    <Bell size={18} />
@@ -400,7 +417,6 @@ export default function App() {
                                 <div className="text-xs text-slate-400 whitespace-pre-wrap break-words pr-4">{n.message}</div>
                                 <div className="text-[9px] text-slate-500 mt-2 text-right">{new Date(n.createdAt).toLocaleString('tr-TR')}</div>
                                 
-                                {/* Çöp Kutusu (Bildirim Silme) */}
                                 <button onClick={(e) => deleteNotification(n.id, e)} className="absolute bottom-2 left-2 text-slate-500 hover:text-red-400 p-1 transition-colors" title="Bildirimi Sil">
                                   <Trash2 size={14} />
                                 </button>
@@ -1063,7 +1079,7 @@ const PitchPlayer = ({ pp, players, onDragStart, teamColor, onUpdatePosition, on
     <div draggable onDragStart={(e) => onDragStart(e, pp.playerId, `pitch${pp.team}`)} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} className="absolute cursor-grab active:cursor-grabbing transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group z-30" style={{ left: `${pp.x}%`, top: `${pp.y}%`, touchAction: 'none' }}>
       <div 
          className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 overflow-hidden ${teamColor} ${p.avatar ? 'cursor-pointer' : ''}`}
-         onClick={(e) => { e.stopPropagation(); if(p.avatar && setEnlargedImage) setEnlargedImage(p.avatar); }}
+         onClick={(e) => { e.stopPropagation(); if(p.avatar) setEnlargedImage(p.avatar); }}
       >
         {p.avatar ? <img src={p.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform"/> : (p.number || p.firstName.charAt(0))}
       </div>
@@ -1729,7 +1745,6 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
   const [subTab, setSubTab] = useState('players');
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   
-  // Bildirim State'leri
   const [customTitle, setCustomTitle] = useState('');
   const [customMsg, setCustomMsg] = useState('');
   const [customTarget, setCustomTarget] = useState('all');
@@ -1795,7 +1810,7 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
      }
      if (sendNotification) {
          await sendNotification(customTitle, customMsg, customTarget === 'all' ? 'all' : [customTarget]);
-         setNotifMsg({type: 'success', text: 'Bildirim başarıyla gönderildi!'});
+         setNotifMsg({type: 'success', text: 'Bildirim isteği API\'ye gönderildi!'});
      }
      setCustomTitle(''); setCustomMsg('');
      setTimeout(()=>setNotifMsg(null), 3000);
