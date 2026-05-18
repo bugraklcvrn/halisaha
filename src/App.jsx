@@ -39,7 +39,6 @@ const THEME = {
   pitch: 'bg-gradient-to-b from-green-800 to-green-900',
 };
 
-// --- MAÇ PUANLAMA DURUMU (Otomatik Kapanma) ---
 const isRatingsClosedForMatch = (m) => {
   if (!m) return false;
   if (m.ratingsClosed) return true;
@@ -52,7 +51,6 @@ const isRatingsClosedForMatch = (m) => {
   return false;
 };
 
-// --- BOL KESEDEN PUAN VERENLERİ TESPİT ET (Ortalama > 9) ---
 const getBannedRaters = (ratingsObj) => {
   if (!ratingsObj) return [];
   const raterStats = {};
@@ -69,7 +67,6 @@ const getBannedRaters = (ratingsObj) => {
     .map(([raterId]) => raterId);
 };
 
-// --- PUAN HESAPLAMA YARDIMCISI ---
 const getTrimmedRatingData = (ratingsObj, targetPlayerId, bannedRaters = []) => {
   if (!ratingsObj) return { avg: null, excludedMinRater: null, excludedMaxRater: null };
   const entries = Object.entries(ratingsObj).filter(([raterId]) => raterId !== targetPlayerId && !bannedRaters.includes(raterId));
@@ -111,20 +108,14 @@ const getPlayerStatsMap = (players, matches) => {
   });
 
   completedMatches.forEach(m => {
-    const teamA = m.teamA || [];
-    const teamB = m.teamB || [];
-    const subs = m.subs || [];
-    const events = m.events || [];
-
-    const allPlayersInMatch = [...teamA, ...teamB, ...subs.map(id => ({playerId: id}))];
+    const allPlayersInMatch = [...(m.teamA||[]), ...(m.teamB||[]), ...(m.subs||[]).map(id => ({playerId: id}))];
     const bannedRaters = getBannedRaters(m.ratings);
-    
     allPlayersInMatch.forEach(pObj => {
       const stat = statsMap[pObj.playerId];
       if(stat) {
         stat.matches += 1;
-        const isTeamA = teamA.some(p => p.playerId === pObj.playerId);
-        const isTeamB = teamB.some(p => p.playerId === pObj.playerId);
+        const isTeamA = (m.teamA||[]).some(p => p.playerId === pObj.playerId);
+        const isTeamB = (m.teamB||[]).some(p => p.playerId === pObj.playerId);
         if (m.scoreA === m.scoreB) stat.draws++;
         else if ((isTeamA && m.scoreA > m.scoreB) || (isTeamB && m.scoreB > m.scoreA)) stat.wins++;
         else stat.losses++;
@@ -140,7 +131,7 @@ const getPlayerStatsMap = (players, matches) => {
       }
     });
 
-    events.forEach(ev => {
+    (m.events||[]).forEach(ev => {
       if(ev.type === 'goal') {
         if(ev.scorerId !== 'own_goal' && statsMap[ev.scorerId]) statsMap[ev.scorerId].goals += 1;
         if(ev.assistId && statsMap[ev.assistId]) statsMap[ev.assistId].assists += 1;
@@ -180,7 +171,6 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // VERİTABANINI DİNLE
   useEffect(() => {
     if (!firebaseUser) return;
     const unsubPlayers = onSnapshot(dbPath('players'), (snap) => setPlayers(snap.docs.map(d => ({id: d.id, ...d.data()}))));
@@ -194,7 +184,7 @@ export default function App() {
     return () => { unsubPlayers(); unsubMatches(); unsubNotifs(); unsubSettings(); };
   }, [firebaseUser]);
 
-  // PUSH BİLDİRİM İZNİ VE TOKEN ALMA (DÜZELTİLMİŞ)
+  // PUSH BİLDİRİM İZNİ VE TOKEN ALMA
   useEffect(() => {
     const setupPushNotifications = async () => {
       if (!appUserId) return;
@@ -203,10 +193,11 @@ export default function App() {
         const permission = await Notification.requestPermission();
         
         if (permission === 'granted') {
-          // Service Worker'ı manuel kaydederek güvenceye alıyoruz
+          // Service Worker'ı manuel kaydediyoruz (Bulamazsa hata vermemesi için)
           let registration;
           if ('serviceWorker' in navigator) {
-             registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+             registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js')
+                .catch(err => console.warn("Service Worker bulunamadı, push bildirimler (telefon ekranı kapalıyken) çalışmayabilir:", err));
           }
           
           const currentToken = await getToken(messaging, { 
@@ -216,12 +207,13 @@ export default function App() {
           
           if (currentToken) {
             await updateDoc(doc(dbPath('players'), appUserId), { fcmToken: currentToken });
+          } else {
+             console.warn("FCM Token alınamadı. Tarayıcı izinleri eksik olabilir.");
           }
         }
         
+        // Uygulama ekranda açıkken bildirim gelirse telefonda da pop-up göster
         onMessage(messaging, (payload) => {
-           console.log("Uygulama İçi Canlı Bildirim:", payload);
-           // Uygulama açıkken de telefonun üstünden bildirim (Push) çıkmasını sağla
            if (Notification.permission === 'granted') {
                new Notification(payload.notification.title, {
                    body: payload.notification.body,
@@ -230,13 +222,17 @@ export default function App() {
            }
         });
       } catch (error) {
-        console.log('Push bildirim ayarlanamadı:', error);
+        console.warn('Push bildirim (Token) ayarlanamadı:', error);
       }
     };
     setupPushNotifications();
   }, [appUserId]);
 
-  // BİLDİRİM GÖNDERME
+  const currentUserData = players.find(p => p.id === appUserId);
+  const isMasterAdmin = currentUserData?.role === 'master_admin';
+  const isAdmin = isMasterAdmin || currentUserData?.role === 'admin';
+
+  // BİLDİRİM GÖNDERME FONKSİYONU (TEŞHİSLİ)
   const sendNotification = async (title, message, targetUsers) => {
       const notifId = generateId();
       await setDoc(doc(dbPath('notifications'), notifId), {
@@ -251,24 +247,27 @@ export default function App() {
              tokens = players.filter(p => targetUsers.includes(p.id)).map(p => p.fcmToken).filter(Boolean);
          }
 
-         if (tokens.length > 0) {
-             const response = await fetch('/api/sendNotification', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, body: message, tokens })
-             });
-             
-             if (!response.ok) {
-                 const errData = await response.json();
-                 console.error("Vercel API Hatası:", errData);
-                 alert(`Push API Hatası: ${errData.error || response.statusText}\nEğer bilgisayarda deniyorsanız, Vercel'e yükleyin.\nEğer Vercel'deyse, "firebase-admin" paketini kurmamış olabilirsiniz.`);
-             } else {
-                 console.log("Push bildirim başarıyla fırlatıldı!");
-             }
+         // EĞER TOKEN YOKSA (KULLANICI İZİN VERMEMİŞSE)
+         if (tokens.length === 0) {
+             if (isAdmin) alert(`UYARI: Seçilen kullanıcılarda bildirim izni (FCM Token) bulunamadı. Mesaj telefonlara düşmeyecek, sadece uygulama içindeki ZİL ikonuna gönderildi.`);
+             return false;
          }
+
+         const response = await fetch('/api/sendNotification', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, body: message, tokens })
+         });
+         
+         if (!response.ok) {
+             const errData = await response.json().catch(()=>({}));
+             if (isAdmin) alert(`Vercel API Hatası: ${errData.error || response.statusText}\n\napi/sendNotification.js dosyasını yüklediğinizden ve firebase-admin paketini kurduğunuzdan emin olun.`);
+             return false;
+         }
+         return true; // Tam başarı
       } catch (err) {
-         console.error("Fetch Hatası:", err);
-         alert("Sunucuya (API) ulaşılamadı. /api/sendNotification yolu bulunamadı.");
+         if (isAdmin) alert("Sunucuya (API) ulaşılamadı. Uygulamayı localhost'ta (yerel) test ediyor olabilirsiniz veya Vercel bağlantısı koptu.");
+         return false;
       }
   };
 
@@ -302,10 +301,6 @@ export default function App() {
   };
 
   if (authLoading) return <div className={`min-h-screen ${THEME.bg} flex items-center justify-center text-cyan-400`}><Star className="animate-spin w-12 h-12" /></div>;
-
-  const currentUserData = players.find(p => p.id === appUserId);
-  const isMasterAdmin = currentUserData?.role === 'master_admin';
-  const isAdmin = isMasterAdmin || currentUserData?.role === 'admin';
   
   if (!appUserId || !currentUserData) {
     if (appUserId && players.length > 0) {
@@ -320,7 +315,7 @@ export default function App() {
       <div className={`min-h-screen ${THEME.bg} ${THEME.text} flex flex-col items-center justify-center p-6 text-center`}>
         <ShieldAlert size={64} className="text-yellow-500 mb-6 animate-pulse" />
         <h1 className="text-3xl font-black mb-4">Onay Bekleniyor</h1>
-        <p className="text-slate-400 max-w-md mb-6">Hesabın başarıyla oluşturuldu. Ancak uygulamaya erişmek için adminin onay vermesi gerekiyor. Lütfen daha sonra tekrar kontrol et.</p>
+        <p className="text-slate-400 max-w-md mb-6">Hesabın başarıyla oluşturuldu. Ancak uygulamaya erişmek için adminin onay vermesi gerekiyor.</p>
         <button onClick={() => {localStorage.removeItem('halisaha_userId'); setAppUserId(null);}} className="text-sm text-red-400 border border-red-500/30 px-4 py-2 rounded-lg hover:bg-red-500/10">Farklı Bir Hesaba Geç</button>
       </div>
     );
@@ -902,7 +897,7 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
                         <td className="p-3 font-mono text-cyan-400 text-center font-bold text-lg">{p.number || '-'}</td>
                         <td className="p-3">
                            <div className="font-semibold text-white flex items-center gap-2">
-                             {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(p.avatar); }} />}
+                             {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage && setEnlargedImage(p.avatar); }} />}
                              {p.firstName} {p.lastName}
                            </div>
                            <div className="text-[10px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
@@ -1079,7 +1074,7 @@ const PitchPlayer = ({ pp, players, onDragStart, teamColor, onUpdatePosition, on
     <div draggable onDragStart={(e) => onDragStart(e, pp.playerId, `pitch${pp.team}`)} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd} className="absolute cursor-grab active:cursor-grabbing transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center group z-30" style={{ left: `${pp.x}%`, top: `${pp.y}%`, touchAction: 'none' }}>
       <div 
          className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-[0_0_10px_rgba(0,0,0,0.5)] border-2 overflow-hidden ${teamColor} ${p.avatar ? 'cursor-pointer' : ''}`}
-         onClick={(e) => { e.stopPropagation(); if(p.avatar) setEnlargedImage(p.avatar); }}
+         onClick={(e) => { e.stopPropagation(); if(p.avatar && setEnlargedImage) setEnlargedImage(p.avatar); }}
       >
         {p.avatar ? <img src={p.avatar} className="w-full h-full object-cover hover:scale-110 transition-transform"/> : (p.number || p.firstName.charAt(0))}
       </div>
@@ -1428,7 +1423,7 @@ function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin
 
                    {!ratingsAreClosed && myTeam && (
                      <div className="text-xs text-cyan-400 mb-4 bg-cyan-900/20 p-2 rounded border border-cyan-800">
-                       Bilgi: Kendi takımın ve karşı takım için 1-10 arası puan girebilirsin. Puanı silmek istersen kutucuğu boş bırakabilirsin.
+                       Bilgi: Kendi takımın ve karşı takım için 1-10 arası puan girebilirsin. Kendine puan veremezsin. Puanı silmek istersen kutucuğu boş bırakabilirsin.
                      </div>
                    )}
                    {ratingsAreClosed && (
@@ -1808,12 +1803,17 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
         setNotifMsg({type: 'error', text: 'Başlık ve Mesaj boş olamaz.'});
         setTimeout(()=>setNotifMsg(null), 3000); return;
      }
+     
      if (sendNotification) {
-         await sendNotification(customTitle, customMsg, customTarget === 'all' ? 'all' : [customTarget]);
-         setNotifMsg({type: 'success', text: 'Bildirim isteği API\'ye gönderildi!'});
+         const isSuccess = await sendNotification(customTitle, customMsg, customTarget === 'all' ? 'all' : [customTarget]);
+         if (isSuccess) {
+            setNotifMsg({type: 'success', text: 'Bildirim isteği başarıyla API\'ye iletildi!'});
+         } else {
+            setNotifMsg({type: 'error', text: 'Sadece Uygulama İçi Bildirim atıldı. (Push gitmedi)'});
+         }
      }
      setCustomTitle(''); setCustomMsg('');
-     setTimeout(()=>setNotifMsg(null), 3000);
+     setTimeout(()=>setNotifMsg(null), 5000);
   };
 
   const sortedMatches = [...matches].sort((a, b) => new Date(`${b.date}T${b.time}`) - new Date(`${a.date}T${a.time}`));
@@ -1882,7 +1882,7 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
                             <td className="p-3 text-cyan-400 font-bold text-center text-lg">{p.number || '-'}</td>
                             <td className="p-3">
                                 <div className="font-bold text-white flex items-center gap-2">
-                                  {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage && setEnlargedImage(p.avatar); }} />}
+                                  {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(p.avatar); }} />}
                                   {p.firstName} {p.lastName}
                                 </div>
                                 <div className="text-[10px] text-slate-500 mt-1">ID: <span className="text-cyan-500">{p.id}</span> {p.username && <span className="ml-1 text-blue-300">@{p.username}</span>}</div>
