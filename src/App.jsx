@@ -465,10 +465,35 @@ function AuthScreen({ setAppUserId, players }) {
   const handleLogin = (e) => {
     e.preventDefault();
     if (!loginId || !loginPass) return;
-    const loginQuery = loginId.trim().toLowerCase();
-    const user = players.find(p => (p.id.toLowerCase() === loginQuery || (p.username && p.username.toLowerCase() === loginQuery)) && p.password === loginPass);
-    if (user) { localStorage.setItem('halisaha_userId', user.id); setAppUserId(user.id); } 
-    else { showNotif('error', "Bilgiler veya Şifre hatalı!"); }
+
+    // 1. GÜVENLİK: Veriler henüz inmemişse kullanıcıyı uyar
+    if (players.length === 0) {
+      showNotif('error', 'Veritabanı yükleniyor, lütfen 1-2 saniye bekleyip tekrar deneyin.');
+      return;
+    }
+
+    // 2. GÜVENLİK: Boşlukları ve büyük/küçük harf ile @ hatalarını temizle
+    const loginQuery = loginId.trim().toLowerCase().replace('@', '');
+    const passQuery = loginPass.trim();
+
+    // 3. GÜVENLİK: String tip dönüşümü yaparak kusursuz eşleştirme
+    const user = players.find(p => {
+       const dbId = p.id ? String(p.id).toLowerCase() : '';
+       const dbUsername = p.username ? String(p.username).toLowerCase() : '';
+       const dbPass = p.password ? String(p.password).trim() : '';
+
+       const isMatchIdOrUsername = (dbId === loginQuery || dbUsername === loginQuery);
+       const isMatchPass = (dbPass === passQuery);
+
+       return isMatchIdOrUsername && isMatchPass;
+    });
+
+    if (user) { 
+      localStorage.setItem('halisaha_userId', user.id); 
+      setAppUserId(user.id); 
+    } else { 
+      showNotif('error', "Bilgiler veya Şifre hatalı!"); 
+    }
   };
 
   const handleRegister = async (e) => {
