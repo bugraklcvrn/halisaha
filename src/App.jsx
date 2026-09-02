@@ -22,10 +22,8 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = 'halisaha-canli';
 
-// Tüm ortak verilerin yolu
 const dbPath = (colName) => collection(db, 'artifacts', appId, 'public', 'data', colName);
 
-// --- YARDIMCI FONKSİYONLAR ---
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const generatePlayerId = () => Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -143,12 +141,10 @@ const getPlayerStatsMap = (players, matches) => {
   return statsMap;
 };
 
-// --- ANA BİLEŞEN ---
 export default function App() {
   const [activeTab, setActiveTab] = useState('profilim');
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [dbError, setDbError] = useState(null); // YENİ: VERİTABANI HATA DURUMU
   const [enlargedImage, setEnlargedImage] = useState(null);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   
@@ -161,11 +157,7 @@ export default function App() {
 
   useEffect(() => {
     const initAuth = async () => {
-      try { await signInAnonymously(auth); } 
-      catch (err) { 
-        console.error("Giriş hatası:", err); 
-        setDbError(`Auth Hatası: ${err.message}`);
-      }
+      try { await signInAnonymously(auth); } catch (err) { console.error(err); }
     };
     initAuth();
 
@@ -176,21 +168,9 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // VERİTABANINI DİNLE VE HATALARI YAKALA
   useEffect(() => {
     if (!firebaseUser) return;
-
-    const unsubPlayers = onSnapshot(dbPath('players'), 
-      (snap) => {
-          setPlayers(snap.docs.map(d => ({id: d.id, ...d.data()})));
-          setDbError(null);
-      },
-      (error) => {
-          console.error("Firestore Players Hatası:", error);
-          setDbError(error.message);
-      }
-    );
-
+    const unsubPlayers = onSnapshot(dbPath('players'), (snap) => setPlayers(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     const unsubMatches = onSnapshot(dbPath('matches'), (snap) => setMatches(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     const unsubNotifs = onSnapshot(dbPath('notifications'), (snap) => setNotifications(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     const unsubSettings = onSnapshot(doc(dbPath('settings'), 'general'), (docSnap) => {
@@ -201,29 +181,17 @@ export default function App() {
     return () => { unsubPlayers(); unsubMatches(); unsubNotifs(); unsubSettings(); };
   }, [firebaseUser]);
 
-  // CANLI BİLDİRİM DİNLEYİCİSİ
   useEffect(() => {
     try {
       const messaging = getMessaging(app);
       onMessage(messaging, (payload) => {
-         console.log("Uygulama İçi Canlı Bildirim:", payload);
          if (Notification.permission === 'granted') {
-             new Notification(payload.notification.title, {
-                 body: payload.notification.body,
-                 icon: '/vite.svg'
-             });
+             new Notification(payload.notification.title, { body: payload.notification.body, icon: '/vite.svg' });
          }
       });
-    } catch (error) {
-      console.log('Push mesaj dinleyici başlatılamadı:', error);
-    }
+    } catch (error) { }
   }, []);
 
-  const currentUserData = players.find(p => p.id === appUserId);
-  const isMasterAdmin = currentUserData?.role === 'master_admin';
-  const isAdmin = isMasterAdmin || currentUserData?.role === 'admin';
-
-  // MANUEL BİLDİRİM İZNİ İSTEME FONKSİYONU
   const requestNotificationPermission = async () => {
     try {
       const messaging = getMessaging(app);
@@ -242,20 +210,18 @@ export default function App() {
         
         if (currentToken) {
           await updateDoc(doc(dbPath('players'), appUserId), { fcmToken: currentToken });
-          alert("Harika! Bildirim izni başarıyla alındı. Artık uygulama kapalıyken bile telefonuna mesaj gelecek.");
+          alert("Bildirim izni başarıyla alındı!");
         } else {
-           alert("Token alınamadı. Tarayıcı ayarlarından bildirimlere izin verdiğinizden emin olun.");
+           alert("Token alınamadı.");
         }
       } else {
-         alert("Bildirim izni reddedildi. Telefonunuzun tarayıcı ayarlarından (Site Ayarları -> Bildirimler) izin vermeniz gerekiyor.");
+         alert("Bildirim izni reddedildi.");
       }
     } catch (error) {
-      console.error('Push bildirim hatası:', error);
-      alert(`Hata: ${error.message}\nfirebase-messaging-sw.js dosyasının public klasöründe olduğundan emin olun.`);
+      alert(`Hata: ${error.message}`);
     }
   };
 
-  // BİLDİRİM GÖNDERME FONKSİYONU
   const sendNotification = async (title, message, targetUsers) => {
       const notifId = generateId();
       await setDoc(doc(dbPath('notifications'), notifId), {
@@ -270,25 +236,15 @@ export default function App() {
              tokens = players.filter(p => targetUsers.includes(p.id)).map(p => p.fcmToken).filter(Boolean);
          }
 
-         if (tokens.length === 0) {
-             if (isAdmin) alert(`UYARI: Seçilen oyuncularda bildirim izni (Push Token) bulunamadı. Kullanıcıların "Profilim" sekmesinden bildirim izni vermesi gerekiyor. Mesaj sadece zil ikonuna gönderildi.`);
-             return false;
-         }
-
-         const response = await fetch('/api/sendNotification', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ title, body: message, tokens })
-         });
-         
-         if (!response.ok) {
-             const errData = await response.json().catch(()=>({}));
-             if (isAdmin) alert(`Vercel API Hatası: ${errData.error || response.statusText}\n\napi/sendNotification.js dosyasını yüklediğinizden ve firebase-admin paketini kurduğunuzdan emin olun.`);
-             return false;
+         if (tokens.length > 0) {
+             await fetch('/api/sendNotification', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, body: message, tokens })
+             });
          }
          return true;
       } catch (err) {
-         if (isAdmin) alert("Sunucuya (API) ulaşılamadı. Uygulamayı localhost'ta (yerel) test ediyor olabilirsiniz veya Vercel bağlantısı koptu.");
          return false;
       }
   };
@@ -324,12 +280,16 @@ export default function App() {
 
   if (authLoading) return <div className={`min-h-screen ${THEME.bg} flex items-center justify-center text-cyan-400`}><Star className="animate-spin w-12 h-12" /></div>;
   
+  const currentUserData = players.find(p => p.id === appUserId);
+  const isMasterAdmin = currentUserData?.role === 'master_admin';
+  const isAdmin = isMasterAdmin || currentUserData?.role === 'admin';
+
   if (!appUserId || !currentUserData) {
     if (appUserId && players.length > 0) {
       localStorage.removeItem('halisaha_userId');
       setAppUserId(null);
     }
-    return <AuthScreen setAppUserId={setAppUserId} players={players} dbError={dbError} firebaseUser={firebaseUser} authLoading={authLoading} />;
+    return <AuthScreen setAppUserId={setAppUserId} players={players} />;
   }
 
   if (currentUserData?.status === 'pending') {
@@ -461,10 +421,7 @@ const NavButton = ({ active, onClick, icon, text }) => (
   </button>
 );
 
-// ==========================================
-// 0. GİRİŞ YAP VE KAYIT OL EKRANI
-// ==========================================
-function AuthScreen({ setAppUserId, players, dbError, firebaseUser, authLoading }) {
+function AuthScreen({ setAppUserId, players }) {
   const [isLogin, setIsLogin] = useState(true);
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -482,9 +439,9 @@ function AuthScreen({ setAppUserId, players, dbError, firebaseUser, authLoading 
     e.preventDefault();
     if (!loginId || !loginPass) return;
 
-    // GÜVENLİK: Gereksiz boşlukları ve karakterleri temizle
-    const loginQuery = loginId.trim().toLowerCase().replace('@', '');
-    const passQuery = loginPass.trim();
+    // SADECE EŞLEŞTİRME YAPAR (VERİTABANI ENGELİ YOK)
+    const loginQuery = String(loginId).trim().toLowerCase().replace('@', '');
+    const passQuery = String(loginPass).trim();
 
     const user = players.find(p => {
        const dbId = p.id ? String(p.id).toLowerCase() : '';
@@ -497,13 +454,8 @@ function AuthScreen({ setAppUserId, players, dbError, firebaseUser, authLoading 
     if (user) { 
       localStorage.setItem('halisaha_userId', user.id); 
       setAppUserId(user.id); 
-    } 
-    else { 
-      if (players.length === 0 && dbError) {
-          showNotif('error', "Veritabanına ulaşılamıyor. Lütfen Firebase kurallarını kontrol edin.");
-      } else {
-          showNotif('error', "Kullanıcı adı/ID veya Şifre hatalı!"); 
-      }
+    } else { 
+      showNotif('error', "Kullanıcı adı/ID veya Şifre hatalı!"); 
     }
   };
 
@@ -562,32 +514,11 @@ function AuthScreen({ setAppUserId, players, dbError, firebaseUser, authLoading 
            <div className="w-16 h-16 mx-auto rounded-full bg-blue-900 flex items-center justify-center border-2 border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.5)] mb-4"><Trophy className="text-white w-8 h-8" /></div>
            <h2 className="text-2xl font-black">Champions Arena</h2>
         </div>
-
-        {/* VERİTABANI HATA EKRANI (FIREBASE İZİNLERİ KAPALIYSA) */}
-        {dbError && (
-          <div className="bg-red-900/50 border border-red-500 text-red-300 p-4 rounded-lg mb-6 text-sm">
-            <strong className="block mb-1">Veritabanı İzin Hatası:</strong>
-            {dbError.includes('permission-denied')
-              ? "Firebase Firestore kuralları (Rules) okuma/yazmaya kapalı. Lütfen veritabanı kurallarını 'allow read, write: if true;' olarak güncelleyin."
-              : dbError}
-          </div>
-        )}
-        
-        {/* ANONİM GİRİŞ HATA EKRANI */}
-        {!firebaseUser && !authLoading && (
-          <div className="bg-yellow-900/50 border border-yellow-500 text-yellow-300 p-4 rounded-lg mb-6 text-sm">
-            <strong className="block mb-1">Kimlik Doğrulama Kapalı:</strong>
-            Firebase Authentication ayarlarından "Anonymous" (Anonim) girişi aktif etmediğiniz için sisteme bağlanılamıyor.
-          </div>
-        )}
-
         <div className="flex rounded-lg bg-slate-900 p-1 mb-6 border border-slate-700">
           <button onClick={() => setIsLogin(true)} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${isLogin ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>Giriş Yap</button>
           <button onClick={() => setIsLogin(false)} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${!isLogin ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>Kayıt Ol</button>
         </div>
-        
         {notification && <div className={`p-3 rounded-lg text-sm text-center mb-4 border ${notification.type === 'error' ? 'bg-red-900/50 text-red-400 border-red-500/50' : 'bg-green-900/50 text-green-400 border-green-500/50'}`}>{notification.text}</div>}
-        
         {isLogin ? (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
@@ -627,9 +558,6 @@ function AuthScreen({ setAppUserId, players, dbError, firebaseUser, authLoading 
   );
 }
 
-// ==========================================
-// 1. PROFİLİM SEKRESİ
-// ==========================================
 function ProfileTab({ currentUserData, players, matches, setEnlargedImage, requestNotificationPermission }) {
   const [pass1, setPass1] = useState('');
   const [pass2, setPass2] = useState('');
@@ -716,7 +644,6 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage, reque
           <p className="text-slate-400 text-sm mt-1">Kariyerini yönet, profil fotoğrafı ve giriş bilgini düzenle.</p>
         </div>
         
-        {/* YENİ: MANUEL BİLDİRİM İZNİ BUTONU */}
         {!currentUserData.fcmToken && (
            <button onClick={requestNotificationPermission} className="md:absolute md:top-4 md:right-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all animate-pulse">
               <Smartphone size={16}/> Telefona Bildirim Al
@@ -802,9 +729,6 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage, reque
   );
 }
 
-// ==========================================
-// 2. OYUNCU YÖNETİMİ SEKRESİ
-// ==========================================
 function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin, setEnlargedImage }) {
   const [formData, setFormData] = useState({ firstName: '', lastName: '', phone: '', group: '', position: 'Forvet', number: '', password: '' });
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
@@ -970,23 +894,27 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
                              {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(p.avatar); }} />}
                              {p.firstName} {p.lastName}
                            </div>
-                           <div className="text-[10px] text-slate-500 mt-1">ID: <span className="text-cyan-500">{p.id}</span> {p.username && <span className="ml-1 text-blue-300">@{p.username}</span>}</div>
+                           <div className="text-[10px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
+                              {isAdmin && <span>ID: <span className="text-cyan-500 font-bold">{p.id}</span></span>}
+                              {p.username && <span className="text-blue-300">@{p.username}</span>}
+                           </div>
                         </td>
-                        <td className="p-3 text-xs">
-                                <div className={`px-2 py-0.5 rounded inline-block mb-1 ${p.position === 'Kaleci' ? 'bg-yellow-600/20 text-yellow-400' : p.position === 'Defans' ? 'bg-blue-600/20 text-blue-400' : p.position === 'Orta Saha' ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>{p.position}</div>
-                                <div className="text-slate-400">{p.phone || '-'}</div>
-                        </td>
-                        <td className="p-3 text-xs font-mono font-bold text-orange-400 bg-slate-900/50">{p.password}</td>
-                        <td className="p-3 text-xs">
-                                <div className={`px-2 py-0.5 rounded inline-block mb-1 ${p.role === 'master_admin' ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-700' : p.role === 'admin' ? 'bg-cyan-900/50 text-cyan-400 border border-cyan-700' : 'bg-slate-700 text-slate-300'}`}>{p.role}</div>
-                                <div className={`px-2 py-0.5 rounded inline-block ml-1 ${p.status === 'approved' ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>{p.status}</div>
-                        </td>
-                        <td className="p-3 text-center">
-                                 <div className="flex gap-2 justify-center">
-                                     <button onClick={() => setEditingPlayer(p)} className="text-blue-400 p-1.5 bg-blue-900/20 rounded hover:bg-blue-600 hover:text-white transition-colors" title="Düzenle"><Edit size={14}/></button>
-                                     <button onClick={() => handleDelete(p.id)} className="text-red-400 p-1.5 bg-red-900/20 rounded hover:bg-red-600 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed" disabled={p.role === 'master_admin'} title="Sil"><Trash2 size={14}/></button>
-                                 </div>
-                        </td>
+                        <td className="p-3"><span className={`px-2 py-1 rounded text-xs ${p.position === 'Kaleci' ? 'bg-yellow-600/20 text-yellow-400' : p.position === 'Defans' ? 'bg-blue-600/20 text-blue-400' : p.position === 'Orta Saha' ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>{p.position}</span></td>
+                        <td className="p-3 text-xs text-slate-400">{p.phone || '-'}</td>
+                        {isAdmin && (<td className="p-3 text-center"><button onClick={() => togglePlayerStatus(p.id, p.isActive !== false)} disabled={p.role === 'master_admin'} className={`px-3 py-1 rounded text-xs font-bold transition-all ${p.isActive !== false ? 'bg-green-600/20 text-green-400 border border-green-500/50 hover:bg-green-600/40' : 'bg-slate-700 text-slate-400 border border-slate-600 hover:bg-slate-600'} disabled:opacity-30 disabled:cursor-not-allowed`}>{p.isActive !== false ? 'Aktif' : 'Pasif'}</button></td>)}
+                        {isAdmin && (
+                          <td className="p-3">
+                            <div className="flex flex-col gap-2 items-center">
+                              {deleteConfirmId === p.id ? (
+                                <div className="flex gap-1 justify-center"><button onClick={() => confirmDelete(p.id)} className="text-red-400 hover:text-white font-bold text-[10px] bg-red-900/60 px-2 py-1 rounded">Onayla</button><button onClick={() => setDeleteConfirmId(null)} className="text-slate-300 hover:text-white font-bold text-[10px] bg-slate-700 px-2 py-1 rounded">İptal</button></div>
+                              ) : (
+                                <div className="flex gap-2 justify-center items-center"><button onClick={() => setEditingPlayer(p)} disabled={p.role === 'master_admin' && !isMasterAdmin} className="text-blue-400 hover:text-blue-300 p-1.5 bg-blue-900/20 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title="Düzenle"><Edit size={14} /></button><button onClick={() => setDeleteConfirmId(p.id)} disabled={p.role === 'master_admin' || (p.role === 'admin' && !isMasterAdmin)} className="text-red-400 hover:text-red-300 p-1.5 bg-red-900/20 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title="Sil"><Trash2 size={14} /></button></div>
+                              )}
+                              {p.role === 'user' && <button onClick={() => grantAdmin(p.id)} className="text-[10px] text-cyan-400 border border-cyan-700/50 bg-cyan-900/20 px-2 py-0.5 rounded hover:bg-cyan-800/40 w-full">Admin Yap</button>}
+                              {p.role === 'admin' && isMasterAdmin && <button onClick={() => revokeAdmin(p.id)} className="text-[10px] text-orange-400 border border-orange-700/50 bg-orange-900/20 px-2 py-0.5 rounded hover:bg-orange-800/40 w-full">Yetkiyi Al</button>}
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })
@@ -1000,9 +928,6 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
   );
 }
 
-// ==========================================
-// 3. KADRO KURMA SEKRESİ (Sadece Adminler)
-// ==========================================
 function SquadTab({ players, matches, setEnlargedImage, settings, sendNotification }) {
   const [matchData, setMatchData] = useState({ date: '', time: '', stadium: '', teamAName: 'Ev Sahibi', teamBName: 'Deplasman' });
   const [pitchPlayers, setPitchPlayers] = useState([]);
@@ -1039,7 +964,6 @@ function SquadTab({ players, matches, setEnlargedImage, settings, sendNotificati
 
     await setDoc(doc(dbPath('matches'), newMatch.id), newMatch);
     
-    // BİLDİRİM GÖNDERME
     if (settings?.autoMatch && sendNotification) {
        const playersInMatch = [...newMatch.teamA, ...newMatch.teamB].map(p => p.playerId);
        await sendNotification("MAÇINIZ VAR", `${matchData.date} - ${matchData.time} tarihinde maçınız planlandı. Stadyum: ${newMatch.stadium}`, playersInMatch);
@@ -1149,9 +1073,6 @@ const PitchPlayer = ({ pp, players, onDragStart, teamColor, onUpdatePosition, on
   );
 };
 
-// ==========================================
-// 4. FİKSTÜR VE MAÇ YÖNETİMİ
-// ==========================================
 function FixturesTab({ matches, players, currentUserData, isAdmin, isMasterAdmin, setEnlargedImage, settings, sendNotification }) {
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [confirmEndMatchId, setConfirmEndMatchId] = useState(null);
@@ -1626,10 +1547,6 @@ const GoalForm = ({ team, match, players, onAddGoal }) => {
   );
 };
 
-
-// ==========================================
-// 5. İSTATİSTİKLER SEKRESİ
-// ==========================================
 function StatsTab({ players, matches, setEnlargedImage }) {
   const [selectedPlayerForStats, setSelectedPlayerForStats] = useState(null);
 
@@ -1798,9 +1715,6 @@ function StatsTab({ players, matches, setEnlargedImage }) {
   );
 }
 
-// ==========================================
-// YENİ: ADMIN AYARLARI SEKRESİ (SADECE ASIL ADMIN)
-// ==========================================
 function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage, settings, sendNotification }) {
   const [editingPlayer, setEditingPlayer] = useState(null);
   const [subTab, setSubTab] = useState('players');
@@ -2166,5 +2080,3 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
     </div>
   );
 }
-
-export default App;
