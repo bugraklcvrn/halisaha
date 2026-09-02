@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Users, LayoutTemplate, CalendarDays, Trophy, Trash2, Plus, Save, Play, Star, Goal, Edit, ShieldCheck, UserCheck, ShieldAlert, Shield, LogOut, KeyRound, Lock, Unlock, Settings, X, Check, User, Image as ImageIcon, Upload, Bell, Smartphone } from 'lucide-react';
+import { Users, LayoutTemplate, CalendarDays, Trophy, Trash2, Plus, Save, Play, Star, Goal, Edit, ShieldCheck, UserCheck, ShieldAlert, Shield, LogOut, KeyRound, Lock, Unlock, Settings, X, Check, User, Image as ImageIcon, Upload, Bell } from 'lucide-react';
 
 // --- FIREBASE BAĞLANTILARI ---
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
-import { getMessaging, getToken, onMessage } from 'firebase/messaging';
 
 const firebaseConfig = {
   apiKey: "AIzaSyC1fxFGB3JfH839cAW0MN_hvNtP5aS756c",
@@ -20,10 +19,11 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = 'halisaha-canli';
 
-const dbPath = (colName) => collection(db, 'artifacts', appId, 'public', 'data', colName);
+// HATANIN ÇÖZÜLDÜĞÜ YER: Veriler artık alt klasörlerde değil, direkt ana dizinde aranacak.
+const dbPath = (colName) => collection(db, colName);
 
+// --- YARDIMCI FONKSİYONLAR ---
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const generatePlayerId = () => Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -141,6 +141,7 @@ const getPlayerStatsMap = (players, matches) => {
   return statsMap;
 };
 
+// --- ANA BİLEŞEN ---
 export default function App() {
   const [activeTab, setActiveTab] = useState('profilim');
   const [firebaseUser, setFirebaseUser] = useState(null);
@@ -181,72 +182,12 @@ export default function App() {
     return () => { unsubPlayers(); unsubMatches(); unsubNotifs(); unsubSettings(); };
   }, [firebaseUser]);
 
-  useEffect(() => {
-    try {
-      const messaging = getMessaging(app);
-      onMessage(messaging, (payload) => {
-         if (Notification.permission === 'granted') {
-             new Notification(payload.notification.title, { body: payload.notification.body, icon: '/vite.svg' });
-         }
-      });
-    } catch (error) { }
-  }, []);
-
-  const requestNotificationPermission = async () => {
-    try {
-      const messaging = getMessaging(app);
-      const permission = await Notification.requestPermission();
-      
-      if (permission === 'granted') {
-        let registration;
-        if ('serviceWorker' in navigator) {
-           registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-        }
-        
-        const currentToken = await getToken(messaging, { 
-          vapidKey: "BNOnFq8MFh1cD-xgwW672tuIisx1FaOcQ0AIfMmMOAxEd3PpiQqeLIUxreI6e8hrGQpZaFFBCwo_zBqPnScXfgo",
-          serviceWorkerRegistration: registration 
-        });
-        
-        if (currentToken) {
-          await updateDoc(doc(dbPath('players'), appUserId), { fcmToken: currentToken });
-          alert("Bildirim izni başarıyla alındı!");
-        } else {
-           alert("Token alınamadı.");
-        }
-      } else {
-         alert("Bildirim izni reddedildi.");
-      }
-    } catch (error) {
-      alert(`Hata: ${error.message}`);
-    }
-  };
-
+  // SADECE UYGULAMA İÇİ (ZİL) BİLDİRİMİ GÖNDERİR, VERCEL API'YE İHTİYAÇ DUYMAZ
   const sendNotification = async (title, message, targetUsers) => {
       const notifId = generateId();
       await setDoc(doc(dbPath('notifications'), notifId), {
           id: notifId, title, message, targetUsers, createdAt: Date.now(), readBy: [], deletedBy: []
       });
-
-      try {
-         let tokens = [];
-         if (targetUsers === 'all') {
-             tokens = players.map(p => p.fcmToken).filter(Boolean);
-         } else {
-             tokens = players.filter(p => targetUsers.includes(p.id)).map(p => p.fcmToken).filter(Boolean);
-         }
-
-         if (tokens.length > 0) {
-             await fetch('/api/sendNotification', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, body: message, tokens })
-             });
-         }
-         return true;
-      } catch (err) {
-         return false;
-      }
   };
 
   const markAsRead = async (notifId) => {
@@ -310,7 +251,7 @@ export default function App() {
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'profilim': return <ProfileTab currentUserData={currentUserData} players={players} matches={matches} setEnlargedImage={setEnlargedImage} requestNotificationPermission={requestNotificationPermission} />;
+      case 'profilim': return <ProfileTab currentUserData={currentUserData} players={players} matches={matches} setEnlargedImage={setEnlargedImage} />;
       case 'oyuncular': return <PlayersTab players={players} matches={matches} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} setEnlargedImage={setEnlargedImage} />;
       case 'kadro': return isAdmin ? <SquadTab players={players} matches={matches} setEnlargedImage={setEnlargedImage} settings={settings} sendNotification={sendNotification} /> : null;
       case 'fikstur': return <FixturesTab matches={matches} players={players} currentUserData={currentUserData} isAdmin={isAdmin} isMasterAdmin={isMasterAdmin} setEnlargedImage={setEnlargedImage} settings={settings} sendNotification={sendNotification} />;
@@ -439,7 +380,6 @@ function AuthScreen({ setAppUserId, players }) {
     e.preventDefault();
     if (!loginId || !loginPass) return;
 
-    // SADECE EŞLEŞTİRME YAPAR (VERİTABANI ENGELİ YOK)
     const loginQuery = String(loginId).trim().toLowerCase().replace('@', '');
     const passQuery = String(loginPass).trim();
 
@@ -558,7 +498,7 @@ function AuthScreen({ setAppUserId, players }) {
   );
 }
 
-function ProfileTab({ currentUserData, players, matches, setEnlargedImage, requestNotificationPermission }) {
+function ProfileTab({ currentUserData, players, matches, setEnlargedImage }) {
   const [pass1, setPass1] = useState('');
   const [pass2, setPass2] = useState('');
   const [usernameInput, setUsernameInput] = useState(currentUserData.username || '');
@@ -643,12 +583,6 @@ function ProfileTab({ currentUserData, players, matches, setEnlargedImage, reque
           <h2 className="text-2xl font-bold text-white">{currentUserData.firstName} {currentUserData.lastName} <span className="text-sm font-normal text-slate-400">({currentUserData.position})</span></h2>
           <p className="text-slate-400 text-sm mt-1">Kariyerini yönet, profil fotoğrafı ve giriş bilgini düzenle.</p>
         </div>
-        
-        {!currentUserData.fcmToken && (
-           <button onClick={requestNotificationPermission} className="md:absolute md:top-4 md:right-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all animate-pulse">
-              <Smartphone size={16}/> Telefona Bildirim Al
-           </button>
-        )}
         
         <div className="bg-slate-950 p-4 rounded-lg border border-cyan-500/30 text-center min-w-[150px] mt-4 md:mt-0">
           <div className="text-[10px] text-cyan-400 uppercase tracking-widest font-bold mb-1">Hesap ID</div>
@@ -1785,13 +1719,8 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
      }
      
      if (sendNotification) {
-         setNotifMsg({type: 'success', text: 'Bildirim isteği işleniyor... Lütfen bekleyin.'});
-         const isSuccess = await sendNotification(customTitle, customMsg, customTarget === 'all' ? 'all' : [customTarget]);
-         if (isSuccess) {
-            setNotifMsg({type: 'success', text: 'Bildirim başarıyla Push API\'ye iletildi!'});
-         } else {
-            setNotifMsg({type: 'error', text: 'Sadece Uygulama İçi (Zil) çalıştı. API hatası aldı.'});
-         }
+         setNotifMsg({type: 'success', text: 'Bildirim başarıyla gönderildi.'});
+         await sendNotification(customTitle, customMsg, customTarget === 'all' ? 'all' : [customTarget]);
      }
      setCustomTitle(''); setCustomMsg('');
      setTimeout(()=>setNotifMsg(null), 5000);
@@ -2051,7 +1980,7 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
                 </div>
 
                 <div className="bg-slate-900 p-6 rounded-lg border border-slate-700">
-                    <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">Özel Bildirim Gönder</h3>
+                    <h3 className="text-white font-bold mb-4 border-b border-slate-700 pb-2">Özel Bildirim Gönder (Uygulama İçi)</h3>
                     {notifMsg && <div className={`p-3 rounded mb-4 text-sm font-bold ${notifMsg.type === 'error' ? 'bg-red-900/50 text-red-400' : 'bg-green-900/50 text-green-400'}`}>{notifMsg.text}</div>}
                     <div className="space-y-4">
                         <div>
@@ -2080,3 +2009,5 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
     </div>
   );
 }
+
+export default App;
