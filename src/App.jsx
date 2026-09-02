@@ -144,10 +144,11 @@ const getPlayerStatsMap = (players, matches) => {
 };
 
 // --- ANA BİLEŞEN ---
-function App() {
+export default function App() {
   const [activeTab, setActiveTab] = useState('profilim');
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [dbError, setDbError] = useState(null); // YENİ: VERİTABANI HATA DURUMU
   const [enlargedImage, setEnlargedImage] = useState(null);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   
@@ -160,7 +161,11 @@ function App() {
 
   useEffect(() => {
     const initAuth = async () => {
-      try { await signInAnonymously(auth); } catch (err) { console.error("Giriş hatası:", err); }
+      try { await signInAnonymously(auth); } 
+      catch (err) { 
+        console.error("Giriş hatası:", err); 
+        setDbError(`Auth Hatası: ${err.message}`);
+      }
     };
     initAuth();
 
@@ -171,10 +176,21 @@ function App() {
     return () => unsub();
   }, []);
 
-  // VERİTABANINI DİNLE
+  // VERİTABANINI DİNLE VE HATALARI YAKALA
   useEffect(() => {
     if (!firebaseUser) return;
-    const unsubPlayers = onSnapshot(dbPath('players'), (snap) => setPlayers(snap.docs.map(d => ({id: d.id, ...d.data()}))));
+
+    const unsubPlayers = onSnapshot(dbPath('players'), 
+      (snap) => {
+          setPlayers(snap.docs.map(d => ({id: d.id, ...d.data()})));
+          setDbError(null);
+      },
+      (error) => {
+          console.error("Firestore Players Hatası:", error);
+          setDbError(error.message);
+      }
+    );
+
     const unsubMatches = onSnapshot(dbPath('matches'), (snap) => setMatches(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     const unsubNotifs = onSnapshot(dbPath('notifications'), (snap) => setNotifications(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     const unsubSettings = onSnapshot(doc(dbPath('settings'), 'general'), (docSnap) => {
@@ -185,7 +201,7 @@ function App() {
     return () => { unsubPlayers(); unsubMatches(); unsubNotifs(); unsubSettings(); };
   }, [firebaseUser]);
 
-  // CANLI BİLDİRİM DİNLEYİCİSİ (Token alma butona taşındı)
+  // CANLI BİLDİRİM DİNLEYİCİSİ
   useEffect(() => {
     try {
       const messaging = getMessaging(app);
@@ -313,7 +329,7 @@ function App() {
       localStorage.removeItem('halisaha_userId');
       setAppUserId(null);
     }
-    return <AuthScreen setAppUserId={setAppUserId} players={players} />;
+    return <AuthScreen setAppUserId={setAppUserId} players={players} dbError={dbError} firebaseUser={firebaseUser} authLoading={authLoading} />;
   }
 
   if (currentUserData?.status === 'pending') {
@@ -448,7 +464,7 @@ const NavButton = ({ active, onClick, icon, text }) => (
 // ==========================================
 // 0. GİRİŞ YAP VE KAYIT OL EKRANI
 // ==========================================
-function AuthScreen({ setAppUserId, players }) {
+function AuthScreen({ setAppUserId, players, dbError, firebaseUser, authLoading }) {
   const [isLogin, setIsLogin] = useState(true);
   const [notification, setNotification] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -466,33 +482,28 @@ function AuthScreen({ setAppUserId, players }) {
     e.preventDefault();
     if (!loginId || !loginPass) return;
 
-    // 1. GÜVENLİK: Veriler henüz inmemişse kullanıcıyı uyar
-    if (players.length === 0) {
-      showNotif('error', 'Veritabanı yükleniyor, lütfen 1-2 saniye bekleyip tekrar deneyin.');
-      return;
-    }
-
-    // 2. GÜVENLİK: Boşlukları ve büyük/küçük harf ile @ hatalarını temizle
+    // GÜVENLİK: Gereksiz boşlukları ve karakterleri temizle
     const loginQuery = loginId.trim().toLowerCase().replace('@', '');
     const passQuery = loginPass.trim();
 
-    // 3. GÜVENLİK: String tip dönüşümü yaparak kusursuz eşleştirme
     const user = players.find(p => {
        const dbId = p.id ? String(p.id).toLowerCase() : '';
        const dbUsername = p.username ? String(p.username).toLowerCase() : '';
        const dbPass = p.password ? String(p.password).trim() : '';
 
-       const isMatchIdOrUsername = (dbId === loginQuery || dbUsername === loginQuery);
-       const isMatchPass = (dbPass === passQuery);
-
-       return isMatchIdOrUsername && isMatchPass;
+       return (dbId === loginQuery || dbUsername === loginQuery) && (dbPass === passQuery);
     });
 
     if (user) { 
       localStorage.setItem('halisaha_userId', user.id); 
       setAppUserId(user.id); 
-    } else { 
-      showNotif('error', "Bilgiler veya Şifre hatalı!"); 
+    } 
+    else { 
+      if (players.length === 0 && dbError) {
+          showNotif('error', "Veritabanına ulaşılamıyor. Lütfen Firebase kurallarını kontrol edin.");
+      } else {
+          showNotif('error', "Kullanıcı adı/ID veya Şifre hatalı!"); 
+      }
     }
   };
 
@@ -551,11 +562,32 @@ function AuthScreen({ setAppUserId, players }) {
            <div className="w-16 h-16 mx-auto rounded-full bg-blue-900 flex items-center justify-center border-2 border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.5)] mb-4"><Trophy className="text-white w-8 h-8" /></div>
            <h2 className="text-2xl font-black">Champions Arena</h2>
         </div>
+
+        {/* VERİTABANI HATA EKRANI (FIREBASE İZİNLERİ KAPALIYSA) */}
+        {dbError && (
+          <div className="bg-red-900/50 border border-red-500 text-red-300 p-4 rounded-lg mb-6 text-sm">
+            <strong className="block mb-1">Veritabanı İzin Hatası:</strong>
+            {dbError.includes('permission-denied')
+              ? "Firebase Firestore kuralları (Rules) okuma/yazmaya kapalı. Lütfen veritabanı kurallarını 'allow read, write: if true;' olarak güncelleyin."
+              : dbError}
+          </div>
+        )}
+        
+        {/* ANONİM GİRİŞ HATA EKRANI */}
+        {!firebaseUser && !authLoading && (
+          <div className="bg-yellow-900/50 border border-yellow-500 text-yellow-300 p-4 rounded-lg mb-6 text-sm">
+            <strong className="block mb-1">Kimlik Doğrulama Kapalı:</strong>
+            Firebase Authentication ayarlarından "Anonymous" (Anonim) girişi aktif etmediğiniz için sisteme bağlanılamıyor.
+          </div>
+        )}
+
         <div className="flex rounded-lg bg-slate-900 p-1 mb-6 border border-slate-700">
           <button onClick={() => setIsLogin(true)} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${isLogin ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>Giriş Yap</button>
           <button onClick={() => setIsLogin(false)} className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${!isLogin ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>Kayıt Ol</button>
         </div>
+        
         {notification && <div className={`p-3 rounded-lg text-sm text-center mb-4 border ${notification.type === 'error' ? 'bg-red-900/50 text-red-400 border-red-500/50' : 'bg-green-900/50 text-green-400 border-green-500/50'}`}>{notification.text}</div>}
+        
         {isLogin ? (
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
@@ -938,27 +970,23 @@ function PlayersTab({ players, matches, currentUserData, isAdmin, isMasterAdmin,
                              {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(p.avatar); }} />}
                              {p.firstName} {p.lastName}
                            </div>
-                           <div className="text-[10px] text-slate-500 font-mono flex items-center gap-2 mt-0.5">
-                              {isAdmin && <span>ID: <span className="text-cyan-500 font-bold">{p.id}</span></span>}
-                              {p.username && <span className="text-blue-300">@{p.username}</span>}
-                           </div>
+                           <div className="text-[10px] text-slate-500 mt-1">ID: <span className="text-cyan-500">{p.id}</span> {p.username && <span className="ml-1 text-blue-300">@{p.username}</span>}</div>
                         </td>
-                        <td className="p-3"><span className={`px-2 py-1 rounded text-xs ${p.position === 'Kaleci' ? 'bg-yellow-600/20 text-yellow-400' : p.position === 'Defans' ? 'bg-blue-600/20 text-blue-400' : p.position === 'Orta Saha' ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>{p.position}</span></td>
-                        <td className="p-3 text-xs text-slate-400">{p.phone || '-'}</td>
-                        {isAdmin && (<td className="p-3 text-center"><button onClick={() => togglePlayerStatus(p.id, p.isActive !== false)} disabled={p.role === 'master_admin'} className={`px-3 py-1 rounded text-xs font-bold transition-all ${p.isActive !== false ? 'bg-green-600/20 text-green-400 border border-green-500/50 hover:bg-green-600/40' : 'bg-slate-700 text-slate-400 border border-slate-600 hover:bg-slate-600'} disabled:opacity-30 disabled:cursor-not-allowed`}>{p.isActive !== false ? 'Aktif' : 'Pasif'}</button></td>)}
-                        {isAdmin && (
-                          <td className="p-3">
-                            <div className="flex flex-col gap-2 items-center">
-                              {deleteConfirmId === p.id ? (
-                                <div className="flex gap-1 justify-center"><button onClick={() => confirmDelete(p.id)} className="text-red-400 hover:text-white font-bold text-[10px] bg-red-900/60 px-2 py-1 rounded">Onayla</button><button onClick={() => setDeleteConfirmId(null)} className="text-slate-300 hover:text-white font-bold text-[10px] bg-slate-700 px-2 py-1 rounded">İptal</button></div>
-                              ) : (
-                                <div className="flex gap-2 justify-center items-center"><button onClick={() => setEditingPlayer(p)} disabled={p.role === 'master_admin' && !isMasterAdmin} className="text-blue-400 hover:text-blue-300 p-1.5 bg-blue-900/20 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title="Düzenle"><Edit size={14} /></button><button onClick={() => setDeleteConfirmId(p.id)} disabled={p.role === 'master_admin' || (p.role === 'admin' && !isMasterAdmin)} className="text-red-400 hover:text-red-300 p-1.5 bg-red-900/20 rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed" title="Sil"><Trash2 size={14} /></button></div>
-                              )}
-                              {p.role === 'user' && <button onClick={() => grantAdmin(p.id)} className="text-[10px] text-cyan-400 border border-cyan-700/50 bg-cyan-900/20 px-2 py-0.5 rounded hover:bg-cyan-800/40 w-full">Admin Yap</button>}
-                              {p.role === 'admin' && isMasterAdmin && <button onClick={() => revokeAdmin(p.id)} className="text-[10px] text-orange-400 border border-orange-700/50 bg-orange-900/20 px-2 py-0.5 rounded hover:bg-orange-800/40 w-full">Yetkiyi Al</button>}
-                            </div>
-                          </td>
-                        )}
+                        <td className="p-3 text-xs">
+                                <div className={`px-2 py-0.5 rounded inline-block mb-1 ${p.position === 'Kaleci' ? 'bg-yellow-600/20 text-yellow-400' : p.position === 'Defans' ? 'bg-blue-600/20 text-blue-400' : p.position === 'Orta Saha' ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'}`}>{p.position}</div>
+                                <div className="text-slate-400">{p.phone || '-'}</div>
+                        </td>
+                        <td className="p-3 text-xs font-mono font-bold text-orange-400 bg-slate-900/50">{p.password}</td>
+                        <td className="p-3 text-xs">
+                                <div className={`px-2 py-0.5 rounded inline-block mb-1 ${p.role === 'master_admin' ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-700' : p.role === 'admin' ? 'bg-cyan-900/50 text-cyan-400 border border-cyan-700' : 'bg-slate-700 text-slate-300'}`}>{p.role}</div>
+                                <div className={`px-2 py-0.5 rounded inline-block ml-1 ${p.status === 'approved' ? 'bg-green-900/50 text-green-400' : 'bg-red-900/50 text-red-400'}`}>{p.status}</div>
+                        </td>
+                        <td className="p-3 text-center">
+                                 <div className="flex gap-2 justify-center">
+                                     <button onClick={() => setEditingPlayer(p)} className="text-blue-400 p-1.5 bg-blue-900/20 rounded hover:bg-blue-600 hover:text-white transition-colors" title="Düzenle"><Edit size={14}/></button>
+                                     <button onClick={() => handleDelete(p.id)} className="text-red-400 p-1.5 bg-red-900/20 rounded hover:bg-red-600 hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed" disabled={p.role === 'master_admin'} title="Sil"><Trash2 size={14}/></button>
+                                 </div>
+                        </td>
                       </tr>
                     );
                   })
@@ -1848,7 +1876,7 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
          if (isSuccess) {
             setNotifMsg({type: 'success', text: 'Bildirim başarıyla Push API\'ye iletildi!'});
          } else {
-            setNotifMsg({type: 'error', text: 'Push Bildirimi atılamadı. Sadece Uygulama İçi (Zil) çalıştı.'});
+            setNotifMsg({type: 'error', text: 'Sadece Uygulama İçi (Zil) çalıştı. API hatası aldı.'});
          }
      }
      setCustomTitle(''); setCustomMsg('');
@@ -1921,7 +1949,7 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
                             <td className="p-3 text-cyan-400 font-bold text-center text-lg">{p.number || '-'}</td>
                             <td className="p-3">
                                 <div className="font-bold text-white flex items-center gap-2">
-                                  {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(p.avatar); }} />}
+                                  {p.avatar && <img src={p.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-600 cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage && setEnlargedImage(p.avatar); }} />}
                                   {p.firstName} {p.lastName}
                                 </div>
                                 <div className="text-[10px] text-slate-500 mt-1">ID: <span className="text-cyan-500">{p.id}</span> {p.username && <span className="ml-1 text-blue-300">@{p.username}</span>}</div>
@@ -1989,7 +2017,7 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
                                 return (
                                    <div key={p.playerId} className="bg-slate-900 p-3 rounded border border-slate-700">
                                       <div className="font-bold text-sm mb-3 border-b border-slate-700/50 pb-1 text-white flex items-center gap-2">
-                                          {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(playerInfo.avatar); }}/>}
+                                          {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage && setEnlargedImage(playerInfo.avatar); }}/>}
                                           {getPlayerName(p.playerId)}
                                       </div>
                                       <div className="space-y-1.5">
@@ -2035,7 +2063,7 @@ function AdminSettingsTab({ players, matches, currentUserData, setEnlargedImage,
                                 return (
                                    <div key={p.playerId} className="bg-slate-900 p-3 rounded border border-slate-700">
                                       <div className="font-bold text-sm mb-3 border-b border-slate-700/50 pb-1 text-white flex items-center gap-2">
-                                          {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage(playerInfo.avatar); }}/>}
+                                          {playerInfo?.avatar && <img src={playerInfo.avatar} className="w-5 h-5 rounded-full object-cover cursor-pointer hover:scale-150 transition-transform" onClick={(e) => { e.stopPropagation(); setEnlargedImage && setEnlargedImage(playerInfo.avatar); }}/>}
                                           {getPlayerName(p.playerId)}
                                       </div>
                                       <div className="space-y-1.5">
